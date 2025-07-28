@@ -25,14 +25,28 @@ export class SidebarView extends LitElement {
 
   render() {
     return html`
-      <div>
-        <span>Variables</span>
-        <ul>
-          ${Object.entries(this.variableConfig).map(
-            ([key, val]) => html`<li><span style="color:${val.color}">${key}</span></li>`
-          )}
+      <div style="padding: 1rem; border: 1px solid #aaa; border-radius: 6px; background: #232323;">
+        <span style="font-size: 1.25rem; font-weight: 600; color: #e0e0e0;">Variables</span>
+        <ul style="list-style: none; padding: 0; margin: 0;">
+          ${Object.entries(this.variableConfig).map(([key, val]) => {
+            const currentValue = this.variableMap.get(key)?.slice(-1)[0] ?? "N/A";
+            return html`
+              <li style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+                <span style="color: ${val.color}; font-weight: 600;">${key}</span>
+                <span style="color: #aaa;">Current: ${currentValue}</span>
+                <input type="color" value="${val.color}" @input="${(e: Event) => this.handleColorChange(e, key)}" style="border: none; background: none; cursor: pointer;">
+              </li>
+            `;
+          })}
         </ul>
       </div>
     `;
+  }
+
+  private handleColorChange(e: Event, key: string) {
+    const input = e.target as HTMLInputElement;
+    const newColor = input.value;
+    this.variableConfig[key] = { color: newColor };
+    this.requestUpdate();
   }
 }

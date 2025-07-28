@@ -120,6 +120,14 @@ class PortSelector extends LitElement {
 			// Preserve the user's autoVariableUpdate toggle state
 			this.plotter.autoVariableUpdate = this.autoVariableUpdate;
 			document.body.append(this.plotter);
+
+			// Ensure plot-screen is updated with variableConfig and data
+			const plotScreen = document.querySelector("plot-screen") as any;
+			if (plotScreen) {
+				const sidebar = document.querySelector('sidebar-view') as any;
+				plotScreen.setVariableConfig(sidebar.getVariableConfig());
+				plotScreen.data = this.plotter.variableMap;
+			}
 		} else {
 			this.plotter?.stop();
 		}
@@ -134,6 +142,13 @@ class PortSelector extends LitElement {
 
 	private handleScreenToggle() {
 		this.screen = this.screen === 'raw' ? 'plot' : 'raw';
+		if (this.screen === 'plot') {
+			const plotScreen = document.querySelector('plot-screen') as any;
+			const sidebar = document.querySelector('sidebar-view') as any;
+			if (plotScreen && sidebar) {
+				plotScreen.setVariableConfig(sidebar.getVariableConfig());
+			}
+		}
 	}
 
 	private handleAutoVariableUpdateToggle() {
@@ -293,7 +308,7 @@ class PortSelector extends LitElement {
 		 ${this.error ? html`<div class="error-message">${this.error}</div>` : nothing}
 		 <div class="main-layout">
 			<div class="sidebar">
-			   <sidebar-view .variableMap=${this.plotter?.variableMap ?? new Map()}></sidebar-view>
+				<sidebar-view id="sidebar" .variableMap=${this.plotter?.variableMap ?? new Map()}></sidebar-view>
 			</div>
 			<div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
 			   ${this.screen === 'raw'
@@ -301,7 +316,10 @@ class PortSelector extends LitElement {
 						.autoScrollEnabled=${this.plotter?.autoScrollEnabled ?? true}
 						.hideData=${this.plotter?.hideData ?? false}
 					 ></raw-data-view>`
-				: html`<plot-screen .data=${this.plotter?.variableMap ?? new Map()}></plot-screen>`}
+				: html`<plot-screen id="plotscreen"
+						.data=${this.plotter?.variableMap ?? new Map()}
+						.variableConfig=${document.querySelector('sidebar-view')?.getVariableConfig() ?? {}}
+					 ></plot-screen>`}
 			</div>
 		 </div>
 	  `;
@@ -505,8 +523,6 @@ class SerialPlotter extends LitElement {
 			this.lineBuffer = this.lineBuffer.slice(-100000);
 		}
 
-
-		let headerFound = false;
 		lines.forEach((line) => {
 			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
 			// Always check for header in the line (case-insensitive, anywhere in the line)
@@ -515,7 +531,6 @@ class SerialPlotter extends LitElement {
 				console.log("[SerialPlotter] Header found");
 				this.parseHeaderLine(line);
 				this.variableMap = new Map();
-				headerFound = true;
 				variables.data = new Map();
 				variables.requestUpdate();
 				this.updateSidebarVariableConfig();
@@ -528,18 +543,21 @@ class SerialPlotter extends LitElement {
 			// Only allow adding new variables if variableConfig has fewer than parts.length
 			const maxVars = Object.keys(this.variableConfig).length;
 			parts.forEach((val: string, idx: number) => {
-				let  name = this.variableOrder[idx+1] || `line${idx + 1}`;
+				let  name = this.variableOrder[idx] || `line${idx + 1}`;
 				// log name of the variable, pllot idx val name and parts length 
 				// Automatically determine variable config if not already present
-				if (this.autoVariableUpdate ) {
+				if (this.autoVariableUpdate) {
+					const color = this.colorPalette[idx % this.colorPalette.length];
 					if (maxVars < (idx + 1)) {
 						name = 'line' + (idx + 1);
 					}
-					const color = this.colorPalette[idx % this.colorPalette.length];
-					this.variableConfig[name] = { color };
-					this.variableOrder.push(name);
-					this.updateSidebarVariableConfig();
-					console.log(`[SerialPlotter] Auto-determined variable: ${name}, color: ${color}`);
+
+					if (!this.variableConfig[name]) {
+						console.log(`[SerialPlotter] Adding new variable: ${name}, color: ${color}`);
+						this.variableConfig[name] = { color };
+						this.variableOrder.push(name);
+						this.updateSidebarVariableConfig();
+					}
 				}
 
 				// Add data to the variable
@@ -556,18 +574,13 @@ class SerialPlotter extends LitElement {
 	 
 		});
 
-		lines.forEach((line) => {
-			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
-			// Always check for header in the line (case-insensitive, anywhere in line)
-			const headerMatch = line.match(/header\b/i);
-			if (!headerMatch) {
-				// 
+		const plotScreen = document.querySelector('plot-screen') as any;
+		const sidebar = document.querySelector('sidebar-view') as any;
+		if (plotScreen && sidebar) {
+			plotScreen.setVariableConfig(sidebar.getVariableConfig());
+		}
 
-			}
-		});
 
-		//console.log("[Webview] Updating plot screen with new data:", this.variableMap);
-		
 	}
 
 	stop() {

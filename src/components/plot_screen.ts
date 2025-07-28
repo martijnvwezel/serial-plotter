@@ -5,22 +5,47 @@ import { customElement, state } from "lit/decorators.js";
 @customElement("plot-screen")
 export class PlotScreen extends LitElement {
   // Allow external updates to add a new line of data (like raw_data_view)
-  public updateLine(variable: string, value: number) {
+  public addLine(variable: string, value: number) {
+    // Add or update the graph data for the variable
+    let graphData = this.data.get(variable) ?? [];
+    graphData.push(value);
+    this.data.set(variable, graphData);
+
+    // Ensure reactivity by reassigning the data property
+    this.data = new Map(this.data);
+
+    // Maintain color mapping for the variable
+    if (!this.dataColors.has(variable)) {
+        this.getDataColor(variable);
+    }
+
+    // Log the graph data
+    console.log(`[PlotScreen] Graph data added for variable '${variable}': ${value}`);
+    console.log(`[PlotScreen] Current graph data state:`, this.data);
+  }
+
+  // Renamed updateLine to updateLineColors for clarity
+  public updateLineColors(variable: string, value: number) {
     // Add or update the data for the variable
     let arr = this.data.get(variable) ?? [];
     arr.push(value);
     this.data.set(variable, arr);
-    // Ensure reactivity
+
+    // Ensure reactivity by reassigning the data property
     this.data = new Map(this.data);
+
+    // Maintain color mapping for the variable
+    if (!this.dataColors.has(variable)) {
+        this.getDataColor(variable);
+    }
 
     // Log the new data
     console.log(`[PlotScreen] New data added for variable '${variable}': ${value}`);
-    console.log(`[PlotScreen] Current data state:`, this.data);
   }
 
   // Allow external update of variable config (colors, etc) from sidebar
   public setVariableConfig(config: Record<string, { color: string }>) {
-    console.log(`[PlotScreen] Updating variable config:`, config);
+
     // Update dataColors map
     const newColors = new Map<string, string>();
     for (const [name, obj] of Object.entries(config)) {
@@ -41,9 +66,9 @@ export class PlotScreen extends LitElement {
   @state()
   autoScroll: boolean = true;
   @state()
-  visibleSamples: number = 100;
+  visibleSamples: number = 2048;
   @state()
-  scrollOffset: number = 49.5;
+  scrollOffset: number = (this.visibleSamples - 1) / 2;
 
 
   updated(changedProps: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -70,7 +95,9 @@ export class PlotScreen extends LitElement {
       }
     }
   }
-
+  ////////////////////////////////////////////////
+// below is old code so if a function exist check if the part is needed
+/////////////////////////////////////////////////
   getDataColor(variable: string): string {
     return this.dataColors.get(variable) || '#fff';
   }
@@ -87,16 +114,244 @@ export class PlotScreen extends LitElement {
     this.selectedVariables = newSet;
   }
 
-  handleAutoScrollChange(e: Event) {
-    this.autoScroll = (e.target as HTMLInputElement).checked;
-  }
+  // handleAutoScrollChange(e: Event) {
+  //   this.autoScroll = (e.target as HTMLInputElement).checked;
+  // }
 
-  handleVisibleSamplesChange(e: Event) {
-    this.visibleSamples = Number((e.target as HTMLInputElement).value);
-  }
+  // handleVisibleSamplesChange(e: Event) {
+  //   this.visibleSamples = Number((e.target as HTMLInputElement).value);
+  // }
 
   handleAddPlot() {
     this.dispatchEvent(new CustomEvent('add-plot', { bubbles: true, composed: true }));
+  }
+
+  canvas!: HTMLCanvasElement;
+  ctx!: CanvasRenderingContext2D;
+  @property()
+  padding = 10;
+  @property()
+  lineWidth = 2;
+  @property()
+  maxSamples = 1000000;
+
+  isDragging = false;
+  startDragX = 0;
+  startScrollOffset = 0;
+
+  createRenderRoot(): Element | ShadowRoot {
+      return this;
+  }
+
+  handleClose() {
+      this.remove();
+  }
+
+  firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
+      super.firstUpdated(_changedProperties);
+      this.canvas = this.querySelector<HTMLCanvasElement>("canvas")!;
+      this.ctx = this.canvas.getContext("2d")!;
+      this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
+      this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
+      this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
+      this.canvas.addEventListener("mouseleave", this.handleMouseUp.bind(this));
+      if (this.selectedVariables.size === 0) {
+          for (const name of this.data.keys()) {
+              this.selectedVariables.add(name);
+          }
+      }
+      this.renderData();
+  }
+
+  // getDataColor(name: string): string {
+  //     if (this.dataColors.has(name)) return this.dataColors.get(name)!;
+
+  //     const palette = [
+  //         "#FF5733",
+  //         "#33FF57",
+  //         "#3357FF",
+  //         "#F39C12",
+  //         "#9B59B6",
+  //         "#1ABC9C",
+  //         "#E74C3C",
+  //         "#3498DB",
+  //         "#2ECC71",
+  //         "#E67E22",
+  //         "#8E44AD",
+  //         "#16A085",
+  //         "#C0392B",
+  //         "#2980B9",
+  //         "#27AE60",
+  //         "#D35400"
+  //     ];
+
+  //     const index = Array.from(this.data.keys()).indexOf(name) % palette.length;
+  //     const color = palette[index];
+
+  //     this.dataColors.set(name, color);
+  //     return color;
+  // }
+
+  // toggleVariableSelection(event: Event) {
+  //     const checkbox = event.target as HTMLInputElement;
+  //     const variable = checkbox.value;
+
+  //     if (checkbox.checked) {
+  //         this.selectedVariables.add(variable);
+  //     } else {
+  //         this.selectedVariables.delete(variable);
+  //     }
+  // }
+
+  handleMouseDown(event: MouseEvent) {
+      if (!this.autoScroll) {
+          this.isDragging = true;
+          this.startDragX = event.clientX;
+          this.startScrollOffset = this.scrollOffset;
+      }
+  }
+
+  handleMouseMove(event: MouseEvent) {
+      if (this.isDragging && !this.autoScroll) {
+          const deltaX = event.clientX - this.startDragX;
+          const pixelsPerSample = this.canvas.clientWidth / (this.visibleSamples - 1);
+          this.scrollOffset = this.startScrollOffset - deltaX / pixelsPerSample;
+      }
+  }
+
+  handleMouseUp() {
+      this.isDragging = false;
+  }
+
+  handleVisibleSamplesChange(e: Event) {
+      const target = e.target as HTMLInputElement;
+      this.visibleSamples = parseInt(target.value, 10);
+  }
+
+  handleAutoScrollChange(e: Event) {
+      const checkbox = e.target as HTMLInputElement;
+      this.autoScroll = checkbox.checked;
+      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      this.scrollOffset = maxSamples - this.visibleSamples / 2;
+  }
+
+  renderData() {
+      if (!this.isConnected) {
+          return;
+      }
+
+      requestAnimationFrame(() => this.renderData());
+
+      const canvas = this.canvas;
+      const ctx = this.ctx;
+      const dpr = window.devicePixelRatio;
+      const w = canvas.clientWidth * dpr;
+      const h = canvas.clientHeight * dpr;
+
+      if (canvas.width != w || canvas.height != h) {
+          canvas.width = canvas.clientWidth * dpr;
+          canvas.height = canvas.clientHeight * dpr;
+      }
+
+      ctx.clearRect(0, 0, w, h);
+
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+
+      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
+      const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
+
+      for (const [name, line] of this.data.entries()) {
+          if (!this.selectedVariables.has(name) || line.length < 2) continue;
+          for (let i = startSample; i <= endSample; i++) {
+              const value = line[i];
+              min = Math.min(min, value);
+              max = Math.max(max, value);
+          }
+      }
+
+      const height = max - min;
+      const padding = this.padding;
+      const lineWidth = this.lineWidth;
+      const baseFontSize = 12;
+      const scaledFontSize = baseFontSize * dpr;
+      const labelPadding = scaledFontSize;
+      const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
+
+      const pixelsPerSample = (w - padding * 2) / (this.visibleSamples - 1);
+
+      if (this.autoScroll && maxSamples > this.visibleSamples) {
+          const targetScrollOffset = maxSamples - this.visibleSamples / 2;
+          this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
+      }
+
+      ctx.save();
+      const labelHeight = 50;
+      const numYLabels = Math.floor(h / labelHeight);
+      ctx.fillStyle = "#aaa";
+      ctx.font = `${scaledFontSize}px Arial`;
+      ctx.textAlign = "left";
+
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+      ctx.lineWidth = 1 * dpr;
+      for (let i = 0; i <= numYLabels; i++) {
+          const yValue = min + (i / numYLabels) * height;
+          const y = h - labelPadding - padding - (yValue - min) * scaleY;
+          ctx.beginPath();
+          ctx.moveTo(padding, y);
+          ctx.lineTo(w - padding, y);
+          ctx.stroke();
+          ctx.fillText(yValue.toFixed(2), 5 * dpr, y + scaledFontSize / 2);
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#aaa";
+      ctx.font = `${scaledFontSize}px Arial`;
+
+      const labelWidthPx = 96 * dpr;
+      const numXLabels = Math.floor(w / labelWidthPx);
+      const step = Math.ceil(this.visibleSamples / numXLabels);
+
+      for (let i = startSample; i <= endSample; i++) {
+          const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+
+          if (x >= padding && x <= w - padding && i % step === 0) {
+              ctx.fillText(i.toString(), x, h - labelPadding);
+          }
+      }
+      ctx.restore();
+
+      for (const [name, line] of this.data.entries()) {
+          if (!this.selectedVariables.has(name) || line.length < 2) continue;
+
+          ctx.strokeStyle = this.getDataColor(name);
+          ctx.lineWidth = lineWidth;
+          ctx.save();
+          ctx.beginPath();
+          let hasStarted = false;
+
+          for (let i = startSample; i <= endSample && i < line.length; i++) {
+              const value = line[i];
+              if (value != null) {
+                  const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+                  const y = h - labelPadding - padding - (value - min) * scaleY;
+
+                  if (!hasStarted) {
+                      ctx.moveTo(x, y);
+                      hasStarted = true;
+                  } else {
+                      ctx.lineTo(x, y);
+                  }
+              }
+          }
+
+          ctx.stroke();
+          ctx.restore();
+      }
   }
 
   render() {
