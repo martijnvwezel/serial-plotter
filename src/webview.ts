@@ -1,3 +1,26 @@
+declare global {
+	interface HTMLElementTagNameMap {
+		'sidebar-view': SidebarView;
+	}
+}
+
+class SidebarView extends HTMLElement {
+	private _variableConfig: Record<string, { color: string }> = {};
+
+	setVariableConfig(config: Record<string, { color: string }>) {
+		this._variableConfig = { ...config };
+		// Optionally trigger a re-render or update if needed
+		this.dispatchEvent(new CustomEvent('variable-config-updated', { detail: this._variableConfig }));
+	}
+
+	getVariableConfig(): Record<string, { color: string }> {
+		return { ...this._variableConfig };
+	}
+}
+
+if (!customElements.get('sidebar-view')) {
+	customElements.define('sidebar-view', SidebarView);
+}
 // DEBUG MODE: Set to true to enable fake serial port with 3 sine waves
 const DEBUG = true;
 import { LitElement, PropertyValueMap, html, nothing } from "lit";
@@ -38,43 +61,43 @@ class PortSelector extends LitElement {
 		this.load();
 	}
 
-   load() {
-	  // Always add a fake port option
-	  const callback = (ev: { data: ProtocolResponse }) => {
-		 const message = ev.data;
-		 if (message.type == "ports-response") {
-			const previouslySelected = this.selected;
-			this.ports = [
-			   ...message.ports,
-			   { path: '/dev/fake_serial', manufacturer: 'Simulated' }
-			];
-			if (previouslySelected) {
-			   const matchingPort = this.ports.find((p) => p.path === previouslySelected);
-			   if (matchingPort) {
-				  this.selected = matchingPort.path;
-			   }
+	load() {
+		// Always add a fake port option
+		const callback = (ev: { data: ProtocolResponse }) => {
+			const message = ev.data;
+			if (message.type == "ports-response") {
+				const previouslySelected = this.selected;
+				this.ports = [
+					...message.ports,
+					{ path: '/dev/fake_serial', manufacturer: 'Simulated' }
+				];
+				if (previouslySelected) {
+					const matchingPort = this.ports.find((p) => p.path === previouslySelected);
+					if (matchingPort) {
+						this.selected = matchingPort.path;
+					}
+				}
+				if (!this.selected) this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
 			}
-			if (!this.selected) this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
-		 }
-		 if (message.type == "error") {
-			if (this.running) {
-			   this.handleStartStop();
+			if (message.type == "error") {
+				if (this.running) {
+					this.handleStartStop();
+				}
+				this.error = "Could not open port or device disconnected";
 			}
-			this.error = "Could not open port or device disconnected";
-		 }
-	  };
-	  window.addEventListener("message", callback);
-	  vscode.postMessage({ type: "ports" });
-   }
+		};
+		window.addEventListener("message", callback);
+		vscode.postMessage({ type: "ports" });
+	}
 
-   handleFakeData() {
-	  this.error = "";
-	  this.running = true;
-	  this.plotter?.remove();
-	  this.plotter = undefined;
-	  this.plotter = new SerialPlotter({ path: '/dev/fake_serial', manufacturer: 'Simulated' }, 115200);
-	  document.body.append(this.plotter);
-   }
+	handleFakeData() {
+		this.error = "";
+		this.running = true;
+		this.plotter?.remove();
+		this.plotter = undefined;
+		this.plotter = new SerialPlotter({ path: '/dev/fake_serial', manufacturer: 'Simulated' }, 115200);
+		document.body.append(this.plotter);
+	}
 
 	handlePortChange(e: Event) {
 		const target = e.target as HTMLSelectElement;
@@ -85,43 +108,43 @@ class PortSelector extends LitElement {
 		vscode.postMessage({ type: "ports" });
 	}
 
-   handleStartStop() {
-	  if (!this.selected) return;
-	  this.error = "";
-	  this.running = !this.running;
-	  if (this.running) {
-		 this.plotter?.remove();
-		 this.plotter = undefined;
-		 const baudRate = this.querySelector<HTMLInputElement>("#baud")?.value;
-		 this.plotter = new SerialPlotter(this.ports.find((p) => p.path === this.selected)!, baudRate ? Number.parseInt(baudRate) : 9600);
-		 // Preserve the user's autoVariableUpdate toggle state
-		 this.plotter.autoVariableUpdate = this.autoVariableUpdate;
-		 document.body.append(this.plotter);
-	  } else {
-		 this.plotter?.stop();
-	  }
-   }
+	handleStartStop() {
+		if (!this.selected) return;
+		this.error = "";
+		this.running = !this.running;
+		if (this.running) {
+			this.plotter?.remove();
+			this.plotter = undefined;
+			const baudRate = this.querySelector<HTMLInputElement>("#baud")?.value;
+			this.plotter = new SerialPlotter(this.ports.find((p) => p.path === this.selected)!, baudRate ? Number.parseInt(baudRate) : 9600);
+			// Preserve the user's autoVariableUpdate toggle state
+			this.plotter.autoVariableUpdate = this.autoVariableUpdate;
+			document.body.append(this.plotter);
+		} else {
+			this.plotter?.stop();
+		}
+	}
 
 
-   @state()
-   private screen: 'raw' | 'plot' = 'raw';
+	@state()
+	private screen: 'raw' | 'plot' = 'plot';
 
-   @state()
-   autoVariableUpdate: boolean = true;
+	@state()
+	autoVariableUpdate: boolean = true;
 
-   private handleScreenToggle() {
-		   this.screen = this.screen === 'raw' ? 'plot' : 'raw';
-   }
+	private handleScreenToggle() {
+		this.screen = this.screen === 'raw' ? 'plot' : 'raw';
+	}
 
-   private handleAutoVariableUpdateToggle() {
-		   this.autoVariableUpdate = !this.autoVariableUpdate;
-		   if (this.plotter) {
-			   this.plotter.autoVariableUpdate = this.autoVariableUpdate;
-		   }
-   }
+	private handleAutoVariableUpdateToggle() {
+		this.autoVariableUpdate = !this.autoVariableUpdate;
+		if (this.plotter) {
+			this.plotter.autoVariableUpdate = this.autoVariableUpdate;
+		}
+	}
 
-   render() {
-	  return html`
+	render() {
+		return html`
 		 <style>
 			:host {
 			   --color-infill-dark: #545454;
@@ -219,9 +242,9 @@ class PortSelector extends LitElement {
 				  <span class="selector-label">Port</span>
 				  <select id="port" @focus="${this.handleRefresh}" @change="${this.handlePortChange}" ?disabled="${this.running}">
 					 ${map(
-						this.ports,
-						(p) => html` <option value="${p.path}" ?selected="${this.selected === p.path}">${p.path + (p.manufacturer ? " - " + p.manufacturer : "")}</option> `
-					 )}
+			this.ports,
+			(p) => html` <option value="${p.path}" ?selected="${this.selected === p.path}">${p.path + (p.manufacturer ? " - " + p.manufacturer : "")}</option> `
+		)}
 				  </select>
 			   </div>
 			   <div class="selector-group">
@@ -249,21 +272,21 @@ class PortSelector extends LitElement {
 				  <span class="connect-label">Connect</span>
 				  <button id="start" @click="${this.handleStartStop}">
 					 ${this.running
-						? html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="#e74c3c"/></svg>Stop`
-						: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>Start`}
+				? html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="#e74c3c"/></svg>Stop`
+				: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>Start`}
 				  </button>
 			   </div>
 			</div>
 			<div style="display: flex; align-items: center; gap: 0.5rem;">
 			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="Switch view">
 				  ${this.screen === 'raw'
-					 ? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="8 12 12 16 16 12" stroke="#aaa" fill="none"/></svg> Raw`
-					 : html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="16 12 12 8 8 12" stroke="#aaa" fill="none"/></svg> Plot`}
+				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="8 12 12 16 16 12" stroke="#aaa" fill="none"/></svg> Raw`
+				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="16 12 12 8 8 12" stroke="#aaa" fill="none"/></svg> Plot`}
 			   </button>
 			   <button class="toggle-btn" @click="${this.handleAutoVariableUpdateToggle}" title="Toggle auto variable update">
 				  ${this.autoVariableUpdate
-					 ? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#2ecc71" stroke-width="2" fill="#2ecc71" opacity="0.2"/><path d="M8 12l2 2 4-4" stroke="#2ecc71" stroke-width="2" fill="none"/></svg> Auto Variable Update: On`
-					 : html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#e74c3c" stroke-width="2" fill="#e74c3c" opacity="0.2"/><line x1="8" y1="8" x2="16" y2="16" stroke="#e74c3c" stroke-width="2"/><line x1="16" y1="8" x2="8" y2="16" stroke="#e74c3c" stroke-width="2"/></svg> Auto Variable Update: Off`}
+				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#2ecc71" stroke-width="2" fill="#2ecc71" opacity="0.2"/><path d="M8 12l2 2 4-4" stroke="#2ecc71" stroke-width="2" fill="none"/></svg> Auto Variable Update: On`
+				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#e74c3c" stroke-width="2" fill="#e74c3c" opacity="0.2"/><line x1="8" y1="8" x2="16" y2="16" stroke="#e74c3c" stroke-width="2"/><line x1="16" y1="8" x2="8" y2="16" stroke="#e74c3c" stroke-width="2"/></svg> Auto Variable Update: Off`}
 			   </button>
 			</div>
 		 </div>
@@ -273,285 +296,279 @@ class PortSelector extends LitElement {
 			   <sidebar-view .variableMap=${this.plotter?.variableMap ?? new Map()}></sidebar-view>
 			</div>
 			<div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
-			   <raw-data-view id="rawdataview"
-				  .autoScrollEnabled=${this.plotter?.autoScrollEnabled ?? true}
-				  .hideData=${this.plotter?.hideData ?? false}
-			   ></raw-data-view>
-			   <plot-screen .data=${this.plotter?.variableMap ?? new Map()}></plot-screen>
+			   ${this.screen === 'raw'
+				? html`<raw-data-view id="rawdataview"
+						.autoScrollEnabled=${this.plotter?.autoScrollEnabled ?? true}
+						.hideData=${this.plotter?.hideData ?? false}
+					 ></raw-data-view>`
+				: html`<plot-screen .data=${this.plotter?.variableMap ?? new Map()}></plot-screen>`}
 			</div>
 		 </div>
 	  `;
-	   }
+	}
 }
 
 @customElement("serial-plotter")
 class SerialPlotter extends LitElement {
-   // Helper to update sidebar-view with variable config
-   private updateSidebarVariableConfig() {
-	  const sidebar = document.querySelector('sidebar-view') as any;
-	  if (sidebar && typeof sidebar.setVariableConfig === 'function') {
-		 sidebar.setVariableConfig(this.variableConfig);
-	  }
-   }
-   public autoVariableUpdate: boolean = true;
-   public lineBuffer: string[] = ["Connecting ..."];
-   public variableMap: Map<string, number[]> = new Map<string, number[]>();
-   private stopped = false;
-   public autoScrollEnabled = true;
-   @state()
-   public hideData = false;
-   @property()
-   samplesExceeded = false;
+	// Helper to update sidebar-view with variable config
+	private updateSidebarVariableConfig() {
+		const sidebar = document.querySelector('sidebar-view') as any;
+		if (sidebar && typeof sidebar.setVariableConfig === 'function') {
+			sidebar.setVariableConfig(this.variableConfig);
+		}
 
-   // Variable config: { name: { color: string } }
-   private variableConfig: Record<string, { color: string }> = {};
-   private variableOrder: string[] = [];
+		const plotScreen = document.querySelector('plot-screen') as any;
+		if (plotScreen && typeof plotScreen.setVariableConfig === 'function') {
+			plotScreen.setVariableConfig(this.variableConfig);
+		}
+	}
 
-   private colorPalette = [
-	   "#b86b4b", // muted orange
-	   "#4bb86b", // muted green
-	   "#4b6bb8", // muted blue
-	   "#b89b4b", // muted yellow
-	   "#7d5fa6", // muted purple
-	   "#4bb8a6", // muted teal
-	   "#b84b4b", // muted red
-	   "#4b8ab8", // muted cyan
-	   "#6bb84b", // muted lime
-	   "#b88a4b", // muted brown
-	   "#6b4bb8", // muted violet
-	   "#4bb88a", // muted aquamarine
-	   "#b84b6b", // muted pink
-	   "#4b6bb8", // muted blue (repeat for palette)
-	   "#4bb86b", // muted green (repeat)
-	   "#b86b4b"  // muted orange (repeat)
-   ];
 
-   private parseHeaderLine(line: string) {
-	   // Example: header   line1:'green' line2:'#a5654' lINE_grap:'red'
-	   // make  lower text line 
+	public autoVariableUpdate: boolean = true;
+	public lineBuffer: string[] = ["Connecting ..."];
+	public variableMap: Map<string, number[]> = new Map<string, number[]>();
+	private stopped = false;
+	public autoScrollEnabled = true;
+	@state()
+	public hideData = false;
+	@property()
+	samplesExceeded = false;
 
-	   // remove time part first ] found should be delete with the space behidn it 
-	  
-	   let line_low = line.toLowerCase();
-	   // delete teh time part the first 15 chars 
-	   
+	// Variable config: { name: { color: string } }
+	private variableConfig: Record<string, { color: string }> = {};
+	private variableOrder: string[] = [];
 
-	   const headerMatch = line_low.match(/^header\s+(.*)$/i);
+	private colorPalette = [
+		"#b86b4b", // muted orange
+		"#4bb86b", // muted green
+		"#4b6bb8", // muted blue
+		"#b89b4b", // muted yellow
+		"#7d5fa6", // muted purple
+		"#4bb8a6", // muted teal
+		"#b84b4b", // muted red
+		"#4b8ab8", // muted cyan
+		"#6bb84b", // muted lime
+		"#b88a4b", // muted brown
+		"#6b4bb8", // muted violet
+		"#4bb88a", // muted aquamarine
+		"#b84b6b", // muted pink
+		"#4b6bb8", // muted blue (repeat for palette)
+		"#4bb86b", // muted green (repeat)
+		"#b86b4b"  // muted orange (repeat)
+	];
 
-	   if (!headerMatch) return;
-	   // log the headermatch 
+	private parseHeaderLine(line: string) {
+		// Example: header   line1:'green' line2:'#a5654' lINE_grap:'red'
+		// make  lower text line 
 
-	   const rest = headerMatch[1];
-	   // Match: name:'color' or just name
-	   const regex = /(\w+)(?::'([^']+)')?/g;
-	   let match;
-	   this.variableConfig = {};
-	   this.variableOrder = [];
-	   let colorIdx = 0;
-	   while ((match = regex.exec(rest)) !== null) {
-		   const name = match[1];
-		   let color = match[2];
-		   if (!color) {
-			   color = this.colorPalette[colorIdx % this.colorPalette.length];
-			   colorIdx++;
-		   }
-		   this.variableConfig[name] = { color };
-		   this.variableOrder.push(name);
-	   }
-	   // Log the new variables and their colors
-	   console.log("[SerialPlotter] Parsed header. Variables and colors:", this.variableConfig);
-   }
+		// remove time part first ] found should be delete with the space behidn it 
 
-   private parseDataLine(line: string): Record<string, number|null> | null {
-	   if (!this.variableOrder.length) return null;
-	   // Split by tab, comma, semicolon, or whitespace
-	   const parts = line.split(/[\t,;\s]+/).filter(Boolean);
-	   if (parts.length < 1) return null;
-	   const result: Record<string, number|null> = {};
-	   for (let i = 0; i < this.variableOrder.length; ++i) {
-		   const name = this.variableOrder[i];
-		   const val = parts[i];
-		   result[name] = val !== undefined ? parseFloat(val) : null;
-	   }
-	   return result;
-   }
+		let line_low = line.toLowerCase();
+		// delete teh time part the first 15 chars 
+
+
+		const headerMatch = line_low.match(/^header\s+(.*)$/i);
+
+		if (!headerMatch) return;
+		// log the headermatch 
+
+		const rest = headerMatch[1];
+		// Match: name:'color' or just name
+		const regex = /(\w+)(?::'([^']+)')?/g;
+		let match;
+		this.variableConfig = {};
+		this.variableOrder = [];
+		let colorIdx = 0;
+		while ((match = regex.exec(rest)) !== null) {
+			const name = match[1];
+			let color = match[2];
+			if (!color) {
+				color = this.colorPalette[colorIdx % this.colorPalette.length];
+				colorIdx++;
+			}
+			this.variableConfig[name] = { color };
+			this.variableOrder.push(name);
+		}
+		// Log the new variables and their colors
+		console.log("[SerialPlotter] Parsed header. Variables and colors:", this.variableConfig);
+	}
+
+	private parseDataLine(line: string): Record<string, number | null> | null {
+		if (!this.variableOrder.length) return null;
+		// Split by tab, comma, semicolon, or whitespace
+		const parts = line.split(/[\t,;\s]+/).filter(Boolean);
+		if (parts.length < 1) return null;
+		const result: Record<string, number | null> = {};
+		for (let i = 0; i < this.variableOrder.length; ++i) {
+			const name = this.variableOrder[i];
+			const val = parts[i];
+			result[name] = val !== undefined ? parseFloat(val) : null;
+		}
+		return result;
+	}
 
 	constructor(readonly port: Port, readonly baudRate: number) {
 		super();
 	}
 
-   start() {
-	  const raw = this.querySelector<HTMLElement>("#raw")!;
-	  const rawParent = raw.parentElement!;
-	  const variables = this.querySelector<VariablesView>("#variables")!;
+	start() {
+		const raw = this.querySelector<HTMLElement>("#raw")!;
+		const rawParent = raw.parentElement!;
+		const variables = this.querySelector<VariablesView>("#variables")!;
 
-	  if (this.port.path === '/dev/fake_serial') {
-		 // Simulate 3 sine waves
-		 let t = 0;
-		 const dt = 0.05;
-		 const fakeColors = [
-			this.colorPalette[0], // muted orange
-			this.colorPalette[1], // muted green
-			this.colorPalette[2]  // muted blue
-		 ];
-		 const sendFakeData = () => {
-			// header line every 100 samples
-			if (t % (dt * 100) === 0) {
-			   const now = new Date();
-			   const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-			   const header = `[${ts}] header   sin1:'${fakeColors[0]}' sin2:'${fakeColors[1]}' sin3:'${fakeColors[2]}'`;
-			   this.processData(header, raw, variables, true);
-			}
-			const now = new Date();
-			const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-			const s1 = Math.sin(t).toFixed(4);
-			const s2 = Math.sin(t + Math.PI / 2).toFixed(4);
-			const s3 = Math.sin(t + Math.PI).toFixed(4);
-			const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
-			this.processData(line, raw, variables, false);
-			t += dt;
-			if (!this.stopped) setTimeout(sendFakeData, 30);
-		 };
-		 sendFakeData();
-		 return;
-	  }
-
-	  window.addEventListener("message", (ev: { data: ProtocolResponse }) => {
-		 const message = ev.data;
-		 if (message.type == "error") {
-			// FIXME
-		 }
-		 if (message.type == "data") {
-			// Add timestamp to each line as soon as it arrives
-			const addTimestamp = (line: string) => {
-			   const now = new Date();
-			   const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-			   return `[${ts}] ${line}`;
+		if (this.port.path === '/dev/fake_serial') {
+			// Simulate 3 sine waves
+			let t = 0;
+			const dt = 0.05;
+			const fakeColors = [
+				this.colorPalette[0], // muted orange
+				this.colorPalette[1], // muted green
+				this.colorPalette[2]  // muted blue
+			];
+			const sendFakeData = () => {
+				// header line every 100 samples
+				if (t % (dt * 100) === 0) {
+					const now = new Date();
+					const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
+					const header = `[${ts}] header   sin1:'${fakeColors[0]}' sin2:'${fakeColors[1]}' sin3:'${fakeColors[2]}'`;
+					this.processData(header, raw, variables, true);
+				}
+				const now = new Date();
+				const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
+				const s1 = Math.sin(t).toFixed(4);
+				const s2 = Math.sin(t + Math.PI / 2).toFixed(4);
+				const s3 = Math.sin(t + Math.PI).toFixed(4);
+				const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
+				this.processData(line, raw, variables, false);
+				t += dt;
+				if (!this.stopped) setTimeout(sendFakeData, 30);
 			};
-			const lines = message.text.split(/\r?\n/).filter(l => l.length > 0);
-			const stampedText = lines.map(addTimestamp).join("\n");
-			this.processData(stampedText, raw, variables);
-			if (this.autoScrollEnabled) {
-			   rawParent.scrollTop = rawParent.scrollHeight;
-			}
-		 }
-	  });
-
-	  const request: StartMonitorPortRequest = {
-		 type: "start-monitor",
-		 port: this.port.path,
-		 baudRate: this.baudRate
-	  };
-	  vscode.postMessage(request);
-	  raw.textContent = this.lineBuffer.filter((line) => this.hideData && line.trim().startsWith(">")).join("\n");
-   }
-
-   processData(data: string, raw: HTMLElement, variables: VariablesView, isHeaderLine = false) {
-	  if (this.stopped) return;
-	  const first = this.variableMap.size == 0;
-	  // Accept both single line and multi-line input
-	  const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
-
-	  // Add lines to the persistent raw-data-view
-	  const rawDataView = document.querySelector('raw-data-view') as any;
-	  if (rawDataView && typeof rawDataView.addLine === 'function') {
-		 // Always show header line as a visible line
-		 if (isHeaderLine) {
-			rawDataView.addLine([data]);
-		 } else {
-			rawDataView.addLine(lines);
-		 }
-	  }
-
-	  // Always show header in the raw text area
-	  if (isHeaderLine) {
-		 this.lineBuffer.push(data);
-	  } else {
-		 this.lineBuffer.push(...lines);
-	  }
-	  this.lineBuffer = [...this.lineBuffer];
-	  if (this.lineBuffer.length > 100000) {
-		 this.lineBuffer = this.lineBuffer.slice(-100000);
-	  }
-
-
-	  let headerFound = false;
-	  lines.forEach((line) => {
-		 line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
-		 // Always check for header in the line (case-insensitive, anywhere in line)
-		 const headerMatch = line.match(/header\b/i);
-		 if (headerMatch) {	
-			console.log("[SerialPlotter] Header found");	
-			this.parseHeaderLine(line);
-			this.variableMap = new Map();
-			headerFound = true;
-			variables.data = new Map();
-			variables.requestUpdate();
-			this.updateSidebarVariableConfig();
+			sendFakeData();
 			return;
-		 } else if (this.autoVariableUpdate || !headerFound) {
+		}
+
+		window.addEventListener("message", (ev: { data: ProtocolResponse }) => {
+			const message = ev.data;
+			if (message.type == "error") {
+				// FIXME
+			}
+			if (message.type == "data") {
+				// Add timestamp to each line as soon as it arrives
+				const addTimestamp = (line: string) => {
+					const now = new Date();
+					const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
+					return `[${ts}] ${line}`;
+				};
+				const lines = message.text.split(/\r?\n/).filter(l => l.length > 0);
+				const stampedText = lines.map(addTimestamp).join("\n");
+				this.processData(stampedText, raw, variables);
+				if (this.autoScrollEnabled) {
+					rawParent.scrollTop = rawParent.scrollHeight;
+				}
+			}
+		});
+
+		const request: StartMonitorPortRequest = {
+			type: "start-monitor",
+			port: this.port.path,
+			baudRate: this.baudRate
+		};
+		vscode.postMessage(request);
+		raw.textContent = this.lineBuffer.filter((line) => this.hideData && line.trim().startsWith(">")).join("\n");
+	}
+
+	processData(data: string, raw: HTMLElement, variables: VariablesView, isHeaderLine = false) {
+		if (this.stopped) return;
+		const first = this.variableMap.size == 0;
+		// Accept both single line and multi-line input
+		const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
+
+		// Add lines to the persistent raw-data-view
+		const rawDataView = document.querySelector('raw-data-view') as any;
+		if (rawDataView && typeof rawDataView.addLine === 'function') {
+			// Always show header line as a visible line
+			if (isHeaderLine) {
+				rawDataView.addLine([data]);
+			} else {
+				rawDataView.addLine(lines);
+			}
+		}
+
+		// Always show header in the raw text area
+		if (isHeaderLine) {
+			this.lineBuffer.push(data);
+		} else {
+			this.lineBuffer.push(...lines);
+		}
+		this.lineBuffer = [...this.lineBuffer];
+		if (this.lineBuffer.length > 100000) {
+			this.lineBuffer = this.lineBuffer.slice(-100000);
+		}
+
+
+		let headerFound = false;
+		lines.forEach((line) => {
+			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
+			// Always check for header in the line (case-insensitive, anywhere in the line)
+			const headerMatch = line.match(/header\b/i);
+			if (headerMatch) {
+				console.log("[SerialPlotter] Header found");
+				this.parseHeaderLine(line);
+				this.variableMap = new Map();
+				headerFound = true;
+				variables.data = new Map();
+				variables.requestUpdate();
+				this.updateSidebarVariableConfig();
+				
+				return;
+			} 
 			// No header: update variables dynamically
 			const parts = line.split(/[ \t,;]+/).filter(Boolean);
-			let newVarAdded = false;
-		 // Only allow adding new variables if variableConfig has fewer than parts.length
-		 const maxVars = Object.keys(this.variableConfig).length;
-		 parts.forEach((val: string, idx: number) => {
-			const name = `line${idx+1}`;
-			// Only add new variable if not already present and we have fewer variables than parts
-			// log the parts length max vars
-			console.log(`[SerialPlotter] Processing part: ${name} = ${val}, idx: ${idx}, maxVars: ${maxVars}, parts.length: ${parts.length}`);
-			if (!this.variableConfig[name] && maxVars < (idx + 1)) {
-			   const color = this.colorPalette[idx % this.colorPalette.length];
-			   this.variableConfig[name] = { color };
-			   this.variableOrder.push(name);
-			   newVarAdded = true;
-			   console.log(`[SerialPlotter] New variable detected: ${name}, color: ${color}`);
-			}
-			// Only add data to variables that exist in variableConfig
-			if (this.variableConfig[name]) {
-			   let arr = this.variableMap.get(name) ?? [];
-			   const numVal = parseFloat(val);
-			   arr.push(!isNaN(numVal) ? numVal : 0);
-			   if (arr.length > 1000000) {
-				  arr = arr.slice(-1000000);
-				  this.samplesExceeded = true;
-			   }
-			   this.variableMap.set(name, arr);
-			}
-		 });
-			if (newVarAdded) {
-			   this.updateSidebarVariableConfig();
-			}
-		 } else {
-			// autoVariableUpdate is false and no header: only update existing variables, do not add new
-			const parts = line.split(/[ \t,;]+/).filter(Boolean);
-			this.variableOrder.forEach((name, idx) => {
-			   if (idx < parts.length) {
-				  let arr = this.variableMap.get(name) ?? [];
-				  const numVal = parseFloat(parts[idx]);
-				  arr.push(!isNaN(numVal) ? numVal : 0);
-				  if (arr.length > 1000000) {
-					 arr = arr.slice(-1000000);
-					 this.samplesExceeded = true;
-				  }
-				  this.variableMap.set(name, arr);
-			   }
-			});
-		 }
-	  });
 
-	  variables.requestUpdate();
-	  this.querySelector("#root")
-		 ?.querySelectorAll<PlotView>("plot-view")
-		 .forEach((pv) => {
-			if (first) {
-			   for (const name of this.variableMap.keys()) {
-				  pv.selectedVariables.add(name);
-			   }
+			// Only allow adding new variables if variableConfig has fewer than parts.length
+			const maxVars = Object.keys(this.variableConfig).length;
+			parts.forEach((val: string, idx: number) => {
+				let  name = this.variableOrder[idx+1] || `line${idx + 1}`;
+				// log name of the variable, pllot idx val name and parts length 
+				// Automatically determine variable config if not already present
+				if (this.autoVariableUpdate ) {
+					if (maxVars < (idx + 1)) {
+						name = 'line' + (idx + 1);
+					}
+					const color = this.colorPalette[idx % this.colorPalette.length];
+					this.variableConfig[name] = { color };
+					this.variableOrder.push(name);
+					this.updateSidebarVariableConfig();
+					console.log(`[SerialPlotter] Auto-determined variable: ${name}, color: ${color}`);
+				}
+
+				// Add data to the variable
+				let arr = this.variableMap.get(name) ?? [];
+				const numVal = parseFloat(val);
+				arr.push(!isNaN(numVal) ? numVal : 0);
+				if (arr.length > 1000000) {
+					arr = arr.slice(-1000000);
+					this.samplesExceeded = true;
+				}
+				this.variableMap.set(name, arr);
+			});
+			
+	 
+		});
+
+		lines.forEach((line) => {
+			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
+			// Always check for header in the line (case-insensitive, anywhere in line)
+			const headerMatch = line.match(/header\b/i);
+			if (!headerMatch) {
+				// 
+
 			}
-			pv.requestUpdate();
-		 });
-   }
+		});
+
+		//console.log("[Webview] Updating plot screen with new data:", this.variableMap);
+		
+	}
 
 	stop() {
 		const request: StopMonitorPortRequest = {
@@ -585,13 +602,7 @@ class SerialPlotter extends LitElement {
 	}
 
 	handleAddPlot() {
-		const plotView = document.createElement("plot-view") as PlotView;
-		plotView.data = this.variableMap;
-		const buttonElement = this.querySelector("#addplot");
-		const rootElement = this.querySelector("#root");
-		if (buttonElement && rootElement) {
-			rootElement.insertBefore(plotView, buttonElement);
-		}
+		// PlotView is removed; add plot logic should be handled in plot_screen if needed.
 	}
 
 	render() {
@@ -655,10 +666,10 @@ class VariablesView extends LitElement {
 					</thead>
 					<tbody>
 						${Array.from(this.data.entries()).map(([key, values]) => {
-							const current = values[values.length - 1];
-							const minMax = this.minMax.get(key) || { min: 0, max: 0 };
+			const current = values[values.length - 1];
+			const minMax = this.minMax.get(key) || { min: 0, max: 0 };
 
-							return html`
+			return html`
 								<tr>
 									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${key}</td>
 									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${minMax.min}</td>
@@ -666,7 +677,7 @@ class VariablesView extends LitElement {
 									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${current}</td>
 								</tr>
 							`;
-						})}
+		})}
 					</tbody>
 				</table>
 			</div>
@@ -674,287 +685,7 @@ class VariablesView extends LitElement {
 	}
 }
 
-@customElement("plot-view")
-class PlotView extends LitElement {
-	@property()
-	data: Map<string, number[]> = new Map<string, number[]>();
-	dataColors: Map<string, string> = new Map<string, string>();
-	canvas!: HTMLCanvasElement;
-	ctx!: CanvasRenderingContext2D;
-	@property()
-	padding = 10;
-	@property()
-	lineWidth = 2;
-	@property({ type: Number })
-	visibleSamples = 100;
-	@property()
-	scrollOffset = (this.visibleSamples - 1) / 2;
-	autoScroll = true;
-	maxSamples = 1000000;
-	selectedVariables: Set<string> = new Set();
-	isDragging = false;
-	startDragX = 0;
-	startScrollOffset = 0;
-
-	createRenderRoot(): Element | ShadowRoot {
-		return this;
-	}
-
-	handleClose() {
-		this.remove();
-	}
-
-	firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
-		super.firstUpdated(_changedProperties);
-		this.canvas = this.querySelector<HTMLCanvasElement>("canvas")!;
-		this.ctx = this.canvas.getContext("2d")!;
-		this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
-		this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
-		this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
-		this.canvas.addEventListener("mouseleave", this.handleMouseUp.bind(this));
-		if (this.selectedVariables.size === 0) {
-			for (const name of this.data.keys()) {
-				this.selectedVariables.add(name);
-			}
-		}
-		this.renderData();
-	}
-
-	getDataColor(name: string): string {
-		if (this.dataColors.has(name)) return this.dataColors.get(name)!;
-
-		const palette = [
-			"#FF5733",
-			"#33FF57",
-			"#3357FF",
-			"#F39C12",
-			"#9B59B6",
-			"#1ABC9C",
-			"#E74C3C",
-			"#3498DB",
-			"#2ECC71",
-			"#E67E22",
-			"#8E44AD",
-			"#16A085",
-			"#C0392B",
-			"#2980B9",
-			"#27AE60",
-			"#D35400"
-		];
-
-		const index = Array.from(this.data.keys()).indexOf(name) % palette.length;
-		const color = palette[index];
-
-		this.dataColors.set(name, color);
-		return color;
-	}
-
-	toggleVariableSelection(event: Event) {
-		const checkbox = event.target as HTMLInputElement;
-		const variable = checkbox.value;
-
-		if (checkbox.checked) {
-			this.selectedVariables.add(variable);
-		} else {
-			this.selectedVariables.delete(variable);
-		}
-	}
-
-	handleMouseDown(event: MouseEvent) {
-		if (!this.autoScroll) {
-			this.isDragging = true;
-			this.startDragX = event.clientX;
-			this.startScrollOffset = this.scrollOffset;
-		}
-	}
-
-	handleMouseMove(event: MouseEvent) {
-		if (this.isDragging && !this.autoScroll) {
-			const deltaX = event.clientX - this.startDragX;
-			const pixelsPerSample = this.canvas.clientWidth / (this.visibleSamples - 1);
-			this.scrollOffset = this.startScrollOffset - deltaX / pixelsPerSample;
-		}
-	}
-
-	handleMouseUp() {
-		this.isDragging = false;
-	}
-
-	handleVisibleSamplesChange(e: Event) {
-		const target = e.target as HTMLInputElement;
-		this.visibleSamples = parseInt(target.value, 10);
-	}
-
-	handleAutoScrollChange(e: Event) {
-		const checkbox = e.target as HTMLInputElement;
-		this.autoScroll = checkbox.checked;
-		const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
-		this.scrollOffset = maxSamples - this.visibleSamples / 2;
-	}
-
-	renderData() {
-		if (!this.isConnected) {
-			return;
-		}
-
-		requestAnimationFrame(() => this.renderData());
-
-		const canvas = this.canvas;
-		const ctx = this.ctx;
-		const dpr = window.devicePixelRatio;
-		const w = canvas.clientWidth * dpr;
-		const h = canvas.clientHeight * dpr;
-
-		if (canvas.width != w || canvas.height != h) {
-			canvas.width = canvas.clientWidth * dpr;
-			canvas.height = canvas.clientHeight * dpr;
-		}
-
-		ctx.clearRect(0, 0, w, h);
-
-		let min = Number.POSITIVE_INFINITY;
-		let max = Number.NEGATIVE_INFINITY;
-
-		// Determine which samples are within the viewport
-		const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
-		const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
-		const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
-
-		// Find global min/max values to normalize data
-		for (const [name, line] of this.data.entries()) {
-			if (!this.selectedVariables.has(name) || line.length < 2) continue;
-			for (let i = startSample; i <= endSample; i++) {
-				const value = line[i];
-				min = Math.min(min, value);
-				max = Math.max(max, value);
-			}
-		}
-
-		const height = max - min;
-		const padding = this.padding;
-		const lineWidth = this.lineWidth;
-		const baseFontSize = 12;
-		const scaledFontSize = baseFontSize * dpr;
-		const labelPadding = scaledFontSize;
-		const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
-
-		// Calculate pixels per sample
-		const pixelsPerSample = (w - padding * 2) / (this.visibleSamples - 1);
-
-		// If auto-scroll is enabled, update scrollOffset to smoothly interpolate towards the latest sample
-		if (this.autoScroll && maxSamples > this.visibleSamples) {
-			const targetScrollOffset = maxSamples - this.visibleSamples / 2;
-			this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
-		}
-		// Draw Y-axis labels
-		ctx.save();
-		const labelHeight = 50;
-		const numYLabels = Math.floor(h / labelHeight);
-		ctx.fillStyle = "#aaa";
-		ctx.font = `${scaledFontSize}px Arial`;
-		ctx.textAlign = "left";
-
-		ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-		ctx.lineWidth = 1 * dpr;
-		for (let i = 0; i <= numYLabels; i++) {
-			const yValue = min + (i / numYLabels) * height;
-			const y = h - labelPadding - padding - (yValue - min) * scaleY;
-			ctx.beginPath();
-			ctx.moveTo(padding, y);
-			ctx.lineTo(w - padding, y);
-			ctx.stroke();
-			ctx.fillText(yValue.toFixed(2), 5 * dpr, y + scaledFontSize / 2);
-		}
-		ctx.restore();
-
-		// Draw X-axis labels
-		ctx.save();
-		ctx.textAlign = "center";
-		ctx.textBaseline = "top";
-		ctx.fillStyle = "#aaa";
-		ctx.font = `${scaledFontSize}px Arial`;
-
-		const labelWidthPx = 96 * dpr;
-		const numXLabels = Math.floor(w / labelWidthPx);
-		const step = Math.ceil(this.visibleSamples / numXLabels);
-
-		for (let i = startSample; i <= endSample; i++) {
-			const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
-
-			if (x >= padding && x <= w - padding && i % step === 0) {
-				ctx.fillText(i.toString(), x, h - labelPadding);
-			}
-		}
-		ctx.restore();
-
-		// Plot data for visible samples
-		for (const [name, line] of this.data.entries()) {
-			if (!this.selectedVariables.has(name) || line.length < 2) continue;
-
-			ctx.strokeStyle = this.getDataColor(name);
-			ctx.lineWidth = lineWidth;
-			ctx.save();
-			ctx.beginPath();
-			let hasStarted = false;
-
-			for (let i = startSample; i <= endSample && i < line.length; i++) {
-				const value = line[i];
-				if (value != null) {
-					const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
-					const y = h - labelPadding - padding - (value - min) * scaleY;
-
-					if (!hasStarted) {
-						ctx.moveTo(x, y);
-						hasStarted = true;
-					} else {
-						ctx.lineTo(x, y);
-					}
-				}
-			}
-
-			ctx.stroke();
-			ctx.restore();
-		}
-	}
-
-	render() {
-		return html`
-			<div style="display: flex; flex-direction: column; gap: 1rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1rem;">
-				<div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;">
-					<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-						${Array.from(this.data.keys()).map(
-							(variable) => html`
-								<label style="color: ${this.getDataColor(variable)};">
-									<input type="checkbox" value="${variable}" .checked="${this.selectedVariables.has(variable)}" @change=${this.toggleVariableSelection} />
-									${variable}
-								</label>
-							`
-						)}
-					</div>
-					<button style="align-self: flex-start;" @click=${this.handleClose}>Close</button>
-				</div>
-
-				<div style="display: flex; align-items: center; gap: 0.5rem;">
-					<label>Auto-scroll</label>
-					<input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} />
-					<label>Zoom</label>
-					<input
-						type="range"
-						min="10"
-						max="1000"
-						value="${this.visibleSamples}"
-						@input=${this.handleVisibleSamplesChange}
-						style="flex-grow: 1; max-width: 350px; outline: none;"
-					/>
-				</div>
-
-				<div style="resize: vertical; overflow: auto; width: 100%; height: 400px;">
-					<canvas style="display: block; width: 100%; height: 100%;"></canvas>
-				</div>
-			</div>
-		`;
-	}
-}
+// ...PlotView removed. All plotting logic should be in plot_screen component now.
 
 document.body.append(new PortSelector());
 
