@@ -9,7 +9,9 @@ let port: SerialPort | undefined;
 export async function activate(context: vscode.ExtensionContext) {
 	initLog();
 
-	const command = vscode.commands.registerCommand("serialplotter.open", () => {
+	const PANEL_STATE_KEY = 'serialplotter.panelOpen';
+
+	function openPanel() {
 		if (panel) {
 			panel.reveal(vscode.ViewColumn.One);
 		} else {
@@ -21,6 +23,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
 			panel.webview.html = getWebviewContent(panel.webview, context.extensionUri);
 
+			// Persist that the panel is open
+			context.globalState.update(PANEL_STATE_KEY, true);
+
 			panel.onDidDispose(
 				() => {
 					panel = undefined;
@@ -29,6 +34,8 @@ export async function activate(context: vscode.ExtensionContext) {
 						port = undefined;
 						info(`Stopped monitoring port`);
 					}
+					// Persist that the panel is closed
+					context.globalState.update(PANEL_STATE_KEY, false);
 				},
 				null,
 				context.subscriptions
@@ -42,8 +49,15 @@ export async function activate(context: vscode.ExtensionContext) {
 				context.subscriptions
 			);
 		}
-	});
+	}
+
+	const command = vscode.commands.registerCommand("serialplotter.open", openPanel);
 	context.subscriptions.push(command);
+
+	// Auto-reopen panel if it was open before reload
+	if (context.globalState.get(PANEL_STATE_KEY)) {
+		openPanel();
+	}
 }
 
 function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
@@ -52,15 +66,15 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serial Plotter</title>
-    <style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Serial Plotter</title>
+	<style>
 		* {
 			box-sizing: border-box;
 		}
 
-        html, body {
+		html, body {
 			padding: 0;
 			margin: 0;
 		}
@@ -68,10 +82,10 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri) {
 		body {
 			padding: 1rem;
 		}
-    </style>
+	</style>
 </head>
 <body>
-    <script src="${scriptUri}"></script>
+	<script src="${scriptUri}"></script>
 </body>
 </html>`;
 }

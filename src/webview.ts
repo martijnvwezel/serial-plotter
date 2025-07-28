@@ -89,47 +89,115 @@ class PortSelector extends LitElement {
 	}
 
 	render() {
+		// --color-infill-dark: #545454;
 		return html`
-			<div style="display: flex; flex-direction: column; gap: 0.5rem;">
-				<div style="display: flex; gap: 0.5rem; justify-items: center; align-items: center;">
-					<span>Port</span>
-					<select id="port" @change="${this.handlePortChange}" ?disabled="${this.running}">
-						${map(
-							this.ports,
-							(p) => html` <option value="${p.path}" ?selected="${this.selected === p.path}">${p.path + (p.manufacturer ? " - " + p.manufacturer : "")}</option> `
-						)}
-					</select>
-					<div id="refresh" @click="${this.handleRefresh}" ?disabled="${this.running}" style="width: 1rem; height: 1rem;">
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-							<path
-								d="M5.46257 4.43262C7.21556 2.91688 9.5007 2 12 2C17.5228 2 22 6.47715 22 12C22 14.1361 21.3302 16.1158 20.1892 17.7406L17 12H20C20 7.58172 16.4183 4 12 4C9.84982 4 7.89777 4.84827 6.46023 6.22842L5.46257 4.43262ZM18.5374 19.5674C16.7844 21.0831 14.4993 22 12 22C6.47715 22 2 17.5228 2 12C2 9.86386 2.66979 7.88416 3.8108 6.25944L7 12H4C4 16.4183 7.58172 20 12 20C14.1502 20 16.1022 19.1517 17.5398 17.7716L18.5374 19.5674Z"
-							></path>
-						</svg>
+			<style>
+				:host {
+					--color-infill-dark: #545454;
+				}
+				.selector-row {
+					display: flex;
+					flex-direction: row;
+					gap: 1.5rem;
+					align-items: center;
+					justify-content: flex-start;
+					margin-bottom: 1rem;
+				}
+				.selector-group {
+					display: flex;
+					flex-direction: column;
+					gap: 0.25rem;
+				}
+				.selector-label {
+					font-size: 1rem;
+					color: #e0e0e0;
+					margin-bottom: 0.15rem;
+					font-weight: 500;
+				}
+				.connect-label {
+					font-size: 1rem;
+					color: #e0e0e0;
+					font-weight: 500;
+					margin-bottom:  0.15rem;
+				}
+				select, button {
+					background: #5a5a5a;
+					color: #c3c1c1ff;
+					border: 1px solid #888;
+					border-radius: 6px;
+					padding: 0.45rem 1.1rem;
+					font-size: 1rem;
+					height: 2.4rem;
+					box-sizing: border-box;
+					transition: border 0.2s, box-shadow 0.2s;
+				}
+				select:focus, button:focus {
+					outline: none;
+					border: 1.5px solid #b0b0b0;
+					box-shadow: 0 0 0 2px #54545455;
+				}
+				select:disabled, button:disabled {
+					opacity: 0.6;
+				}
+				button {
+					font-weight: 600;
+					letter-spacing: 0.03em;
+					/* margin-left removed for alignment under label */
+					min-width: 8.5rem;
+					cursor: pointer;
+				}
+				.error-message {
+					border: 1px solid #300;
+					background: #cc000087;
+					color: #aaa;
+					padding: 1rem;
+					border-radius: 6px;
+					margin-top: 1rem;
+				}
+			</style>
+			<div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%; max-width: 600px; margin: 0 auto;">
+				
+				<div class="selector-row">
+					<div class="selector-group">
+						<span class="selector-label">Port</span>
+						<select id="port" @focus="${this.handleRefresh}" @change="${this.handlePortChange}" ?disabled="${this.running}">
+							${map(
+								this.ports,
+								(p) => html` <option value="${p.path}" ?selected="${this.selected === p.path}">${p.path + (p.manufacturer ? " - " + p.manufacturer : "")}</option> `
+							)}
+						</select>
+					</div>
+					<div class="selector-group">
+						<span class="selector-label">Baud Rate</span>
+						<select id="baud" ?disabled="${this.running}">
+							<option value="110">110</option>
+							<option value="300">300</option>
+							<option value="600">600</option>
+							<option value="1200">1200</option>
+							<option value="2400">2400</option>
+							<option value="4800">4800</option>
+							<option value="9600">9600</option>
+							<option value="14400">14400</option>
+							<option value="19200">19200</option>
+							<option value="38400">38400</option>
+							<option value="57600">57600</option>
+							<option value="115200">115200</option>
+							<option value="128000">128000</option>
+							<option value="256000">256000</option>
+							<option value="460800">460800</option>
+							<option value="921600">921600</option>
+						</select>
+					</div>
+					<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-left: 1.5rem;">
+						<span class="connect-label">Connect</span>
+						<button id="start" @click="${this.handleStartStop}">
+							${this.running
+								? html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="#e74c3c"/></svg>Stop`
+								: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>Start`}
+						</button>
 					</div>
 				</div>
-				<div style="display: flex; gap: 0.5rem; justify-items: center; align-items: center;">
-					<span>Baud Rate</span>
-					<select id="baud" ?disabled="${this.running}">
-						<option value="110">110</option>
-						<option value="300">300</option>
-						<option value="600">600</option>
-						<option value="1200">1200</option>
-						<option value="2400">2400</option>
-						<option value="4800">4800</option>
-						<option value="9600">9600</option>
-						<option value="14400">14400</option>
-						<option value="19200">19200</option>
-						<option value="38400">38400</option>
-						<option value="57600">57600</option>
-						<option value="115200">115200</option>
-						<option value="128000">128000</option>
-						<option value="256000">256000</option>
-						<option value="460800">460800</option>
-						<option value="921600">921600</option>
-					</select>
-					<button id="start" @click="${this.handleStartStop}">${this.running ? "Stop" : "Start"}</button>
-				</div>
-				${this.error ? html`<div style="border: 1px solid #300; background: #cc000087; color: #aaa; padding: 1rem;">${this.error}</div>` : nothing}
+				${this.error ? html`<div class="error-message">${this.error}</div>` : nothing}
 			</div>
 		`;
 	}
