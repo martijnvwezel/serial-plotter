@@ -29,9 +29,6 @@ export class PlotScreen extends LitElement {
         this.getDataColor(variable);
     }
 
-    // Log the graph data
-    console.log(`[PlotScreen] Graph data added for variable '${variable}': ${value}`);
-    console.log(`[PlotScreen] Current graph data state:`, this.data);
   }
 
   // Renamed updateLine to updateLineColors for clarity
@@ -64,7 +61,6 @@ export class PlotScreen extends LitElement {
 
   // Allow external update of variable config (colors, visablename, etc) from sidebar
   public setVariableConfig(config: Record<string, { color: string; visablename: string }>) {
-    console.log("variables set", config);
     
     this.variableConfig = config;
     // Remove data for variables that are no longer in config
