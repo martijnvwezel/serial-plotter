@@ -94,7 +94,7 @@ export class RawDataView extends LitElement {
           <!-- Raw data view row -->
           <div class="raw-data-view-row" style="height: 60vh; min-height: 200px; max-height: 60vh;">
             <pre class="raw-data-pre" style="height: 100%; max-height: 100%; overflow: auto; background: transparent;">
-              <code id="raw">${displayText}</code>
+              <code id="raw">\n${displayText}</code>
             </pre>
           </div>
         </div>
