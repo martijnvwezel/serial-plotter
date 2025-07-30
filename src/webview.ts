@@ -14,6 +14,10 @@ const vscode = acquireVsCodeApi() as VSCodeApi;
 
 @customElement("serial-plotter-app")
 class SerialPlotterApp extends LitElement {
+  constructor() {
+	super();
+	this.downloadCSV = this.downloadCSV.bind(this);
+  }
 	@state()
 	ports: Port[] = [];
 
@@ -217,14 +221,18 @@ class SerialPlotterApp extends LitElement {
 			if (this._messageCallback) {
 				window.removeEventListener("message", this._messageCallback);
 			}
-			// Defensive: remove any other 'message' listeners that might have been added
-			// (This is a workaround for possible duplicates; in a real app, track all added callbacks)
-			const listeners = getEventListeners ? getEventListeners(window).message : undefined; // todo fix bug
-			if (listeners) {
-				for (const l of listeners) {
-					window.removeEventListener("message", l.listener);
-				}
-			}
+	  // Defensive: remove any other 'message' listeners that might have been added
+	  // (This is a workaround for possible duplicates; in a real app, track all added callbacks)
+	  // getEventListeners is only available in Chromium DevTools, not in production browsers
+	  // So we must guard against its absence
+	  if (typeof window !== 'undefined' && typeof (window as any).getEventListeners === 'function') {
+		  const listeners = (window as any).getEventListeners(window).message;
+		  if (listeners) {
+			  for (const l of listeners) {
+				  window.removeEventListener("message", l.listener);
+			  }
+		  }
+	  }
 			this.stopped = true;
    }
 
@@ -390,53 +398,44 @@ class SerialPlotterApp extends LitElement {
 	private handleAutoVariableUpdateToggle() {
 		this.autoVariableUpdate = !this.autoVariableUpdate;
 	}
-	private downloadCSV() {
-		
-		// Convert lineBuffer to CSV string
-		if (!this.lineBuffer || this.lineBuffer.length === 0) return;
-		// Remove any ANSI color codes and join lines
-		const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
-		// Generate filename
-		const now = new Date();
-		const yyyy = now.getFullYear();
-		const mm = String(now.getMonth() + 1).padStart(2, '0');
-		const dd = String(now.getDate()).padStart(2, '0');
-		const filename = `${yyyy}-${mm}-${dd}-muino-data_dump.csv`;
-		// Create blob and trigger download
-		const blob = new Blob([csv], { type: 'text/csv' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = filename;
-		console.log(this.lineBuffer)
-		document.body.appendChild(a);
-		a.click();
-		setTimeout(() => {
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
-		this.showToast(`CSV downloaded: ${filename}`);
-		}, 100);
-	}
+	   private downloadCSV() {
+			   // Convert lineBuffer to CSV string
+			   if (!this.lineBuffer || this.lineBuffer.length === 0) return;
+			   // Remove any ANSI color codes and join lines
+			   const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+			   // Generate filename
+			   const now = new Date();
+			   const yyyy = now.getFullYear();
+			   const mm = String(now.getMonth() + 1).padStart(2, '0');
+			   const dd = String(now.getDate()).padStart(2, '0');
+			   const filename = `${yyyy}-${mm}-${dd}-muino-data_dump.csv`;
+			   // Send message to extension host to save file
+			   vscode.postMessage({
+					   type: 'save-csv',
+					   filename,
+					   content: csv
+			   });
+	   }
 private showToast(message: string) {
-    let toast = document.createElement('div');
-    toast.textContent = message;
-    toast.style.position = 'fixed';
-    toast.style.top = '24px';
-    toast.style.right = '32px';
-    toast.style.background = '#232323ee';
-    toast.style.color = '#fff';
-    toast.style.padding = '0.8em 1.6em';
-    toast.style.borderRadius = '8px';
-    toast.style.fontSize = '1.1em';
-    toast.style.boxShadow = '0 2px 12px #0008';
-    toast.style.zIndex = '9999';
-    toast.style.transition = 'opacity 0.3s';
-    toast.style.opacity = '1';
-    document.body.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => document.body.removeChild(toast), 300);
-    }, 2000);
+	let toast = document.createElement('div');
+	toast.textContent = message;
+	toast.style.position = 'fixed';
+	toast.style.top = '24px';
+	toast.style.right = '32px';
+	toast.style.background = '#232323ee';
+	toast.style.color = '#fff';
+	toast.style.padding = '0.8em 1.6em';
+	toast.style.borderRadius = '8px';
+	toast.style.fontSize = '1.1em';
+	toast.style.boxShadow = '0 2px 12px #0008';
+	toast.style.zIndex = '9999';
+	toast.style.transition = 'opacity 0.3s';
+	toast.style.opacity = '1';
+	document.body.appendChild(toast);
+	setTimeout(() => {
+		toast.style.opacity = '0';
+		setTimeout(() => document.body.removeChild(toast), 300);
+	}, 2000);
 }
 	render() {
 		return html`
@@ -573,11 +572,12 @@ private showToast(message: string) {
 			   </div>
 			</div>
 			<div style="display: flex; align-items: center; gap: 0.5rem;">
-			   <button class="toggle-btn" @click="${this.downloadCSV}" title="Download CSV" style="background: none; border: none; padding: 0; margin-right: 0.5em; cursor: pointer;">
-				 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			   <button class="toggle-btn" @click="${this.downloadCSV}" title="Download data">
+				 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 0.5em;">
 				   <path d="M12 3v14m0 0l-4-4m4 4l4-4"/>
 				   <rect x="4" y="17" width="16" height="4" rx="2" fill="#aaa" opacity="0.2"/>
 				 </svg>
+				 Download CSV
 			   </button>
 
 			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="Switch view">
@@ -614,6 +614,25 @@ private showToast(message: string) {
 	}
 }
 
+
+// Listen for save result from extension host
+window.addEventListener('message', (event) => {
+	   const msg = event.data;
+	   if (msg && msg.type === 'save-csv-result') {
+			   if (msg.success) {
+					   const filename = msg.filename || 'CSV file';
+					   const app = document.querySelector('serial-plotter-app') as any;
+					   if (app && typeof app.showToast === 'function') {
+							   app.showToast(`CSV saved: ${filename}`);
+					   }
+			   } else {
+					   const app = document.querySelector('serial-plotter-app') as any;
+					   if (app && typeof app.showToast === 'function') {
+							   app.showToast('Failed to save CSV');
+					   }
+			   }
+	   }
+});
 
 // Mount the new app element
 document.body.append(document.createElement('serial-plotter-app'));

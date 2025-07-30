@@ -148,9 +148,28 @@ async function processProtocolMessage(message: ProtocolRequests) {
 			}
 			break;
 		}
-		default:
-			info(`Unknown message: ${JSON.stringify(message, null, 2)}`);
-	}
+	   case "save-csv": {
+			   const vscode = require('vscode');
+			   try {
+					   const uri = await vscode.window.showSaveDialog({
+							   defaultUri: vscode.Uri.file(message.filename),
+							   filters: { 'CSV Files': ['csv'], 'All Files': ['*'] }
+					   });
+					   if (uri) {
+							   const enc = new TextEncoder();
+							   await vscode.workspace.fs.writeFile(uri, enc.encode(message.content));
+							   panel?.webview.postMessage({ type: 'save-csv-result', success: true, filename: uri.fsPath });
+					   } else {
+							   panel?.webview.postMessage({ type: 'save-csv-result', success: false });
+					   }
+			   } catch (e) {
+					   panel?.webview.postMessage({ type: 'save-csv-result', success: false });
+			   }
+			   break;
+	   }
+	   default:
+			   info(`Unknown message: ${JSON.stringify(message, null, 2)}`);
+	   }
 }
 
 export function deactivate() {}

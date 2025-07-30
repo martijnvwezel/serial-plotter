@@ -32,5 +32,11 @@ interface DataResponse {
 	text: string;
 }
 
-type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest;
+interface SaveCsvRequest {
+	type: "save-csv";
+	filename: string;
+	content: string;
+}
+
+type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest;
 type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse;
