@@ -20,6 +20,8 @@ export class RawDataView extends LitElement {
   private preElement!: HTMLPreElement;
 
   addLine(lines: string | string[]) {
+    
+    
     if (Array.isArray(lines)) {
       this._lineBuffer.push(...lines);
     } else {
@@ -53,6 +55,8 @@ export class RawDataView extends LitElement {
   }
 
   handleClearRaw() {
+    console.log("Clearing raw data");
+    
     this._lineBuffer = [];
     this.requestUpdate();
   }

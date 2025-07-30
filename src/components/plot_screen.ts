@@ -1,9 +1,11 @@
 import { LitElement, html, PropertyValueMap } from "lit";
-import { property } from "lit/decorators.js";
-import { customElement, state } from "lit/decorators.js";
+import { property, customElement, state } from "lit/decorators.js";
 
 @customElement("plot-screen")
 export class PlotScreen extends LitElement {
+  // Throttle renderData updates
+  private renderInterval = 50; // ms, ~20 FPS
+  private renderTimer: number | null = null;
   // Allow external updates to add a new line of data (like raw_data_view)
   public addLine(variable: string, value: number) {
     // Add or update the graph data for the variable
@@ -52,10 +54,11 @@ export class PlotScreen extends LitElement {
       newColors.set(name, obj.color);
     }
     this.dataColors = newColors;
-    // Optionally, update selectedVariables to match config keys
-    // this.selectedVariables = new Set(newColors.keys());
-    this.requestUpdate(); 
+    // Always update selectedVariables to match config keys from sidebar
+    this.selectedVariables = new Set(Object.keys(config));
+    this.requestUpdate();
   }
+
   @property({ type: Map })
   data: Map<string, number[]> = new Map();
 
@@ -66,11 +69,72 @@ export class PlotScreen extends LitElement {
   @state()
   autoScroll: boolean = true;
   @state()
-  visibleSamples: number = 2048;
+  visibleSamples: number = 8196;
   @state()
   scrollOffset: number = (this.visibleSamples - 1) / 2;
+  @state()
+  stats: Array<{ key: string; min: number | string; max: number | string; current: number | string }> = [];
 
+  @state()
+  autoScaleY: boolean = true;
+  @state()
+  yMin: number | null = null;
+  @state()
+  yMax: number | null = null;
 
+  private static readonly MIN_Y_HEIGHT = 1e-6;
+
+  // --- Vertical panning state ---
+  private isYDragging = false;
+  private startDragY = 0;
+  private startYMin = 0;
+  private startYMax = 0;
+
+  handleCanvasWheel(event: WheelEvent) {
+    if (this.autoScaleY) return;
+    event.preventDefault();
+    const delta = event.deltaY;
+    // If shift is held, pan, else zoom
+    if (event.shiftKey) {
+      // Pan y
+      if (this.yMax === null || this.yMin === null) return;
+      const range = (this.yMax - this.yMin);
+      const pan = range * 0.1 * (delta > 0 ? 1 : -1);
+      let newYMin = this.yMin + pan;
+      let newYMax = this.yMax + pan;
+      // Enforce minimum height
+      if (newYMax - newYMin < PlotScreen.MIN_Y_HEIGHT) {
+        const center = (newYMax + newYMin) / 2;
+        newYMin = center - PlotScreen.MIN_Y_HEIGHT / 2;
+        newYMax = center + PlotScreen.MIN_Y_HEIGHT / 2;
+      }
+      this.yMin = newYMin;
+      this.yMax = newYMax;
+    } else {
+      // Zoom y
+      if (this.yMax === null || this.yMin === null) return;
+      const center = (this.yMax + this.yMin) / 2;
+      let range = (this.yMax - this.yMin);
+      const zoom = delta > 0 ? 1.2 : 0.8;
+      range *= zoom;
+      // Enforce minimum height
+      if (range < PlotScreen.MIN_Y_HEIGHT) {
+        range = PlotScreen.MIN_Y_HEIGHT;
+      }
+      this.yMin = center - range / 2;
+      this.yMax = center + range / 2;
+    }
+    this.requestUpdate();
+  }
+
+  handleAutoScaleYClick() {
+    this.autoScaleY = true;
+    this.yMin = null;
+    this.yMax = null;
+    this.requestUpdate();
+  }
+
+  @state()
   updated(changedProps: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
 
     super.updated?.(changedProps);
@@ -95,9 +159,7 @@ export class PlotScreen extends LitElement {
       }
     }
   }
-  ////////////////////////////////////////////////
-// below is old code so if a function exist check if the part is needed
-/////////////////////////////////////////////////
+
   getDataColor(variable: string): string {
     return this.dataColors.get(variable) || '#fff';
   }
@@ -113,14 +175,6 @@ export class PlotScreen extends LitElement {
     }
     this.selectedVariables = newSet;
   }
-
-  // handleAutoScrollChange(e: Event) {
-  //   this.autoScroll = (e.target as HTMLInputElement).checked;
-  // }
-
-  // handleVisibleSamplesChange(e: Event) {
-  //   this.visibleSamples = Number((e.target as HTMLInputElement).value);
-  // }
 
   handleAddPlot() {
     this.dispatchEvent(new CustomEvent('add-plot', { bubbles: true, composed: true }));
@@ -148,79 +202,68 @@ export class PlotScreen extends LitElement {
   }
 
   firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
-      super.firstUpdated(_changedProperties);
-      this.canvas = this.querySelector<HTMLCanvasElement>("canvas")!;
-      this.ctx = this.canvas.getContext("2d")!;
-      this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
-      this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
-      this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
-      this.canvas.addEventListener("mouseleave", this.handleMouseUp.bind(this));
-      if (this.selectedVariables.size === 0) {
-          for (const name of this.data.keys()) {
-              this.selectedVariables.add(name);
-          }
+    this.canvas = this.querySelector<HTMLCanvasElement>("canvas")!;
+    this.ctx = this.canvas.getContext("2d")!;
+    this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
+    this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
+    this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
+    this.canvas.addEventListener("mouseleave", this.handleMouseUp.bind(this));
+    this.canvas.addEventListener("wheel", this.handleCanvasWheel.bind(this), { passive: false });
+    if (this.selectedVariables.size === 0) {
+      for (const name of this.data.keys()) {
+        this.selectedVariables.add(name);
       }
-      this.renderData();
+    }
+    this.renderData();
   }
 
-  // getDataColor(name: string): string {
-  //     if (this.dataColors.has(name)) return this.dataColors.get(name)!;
-
-  //     const palette = [
-  //         "#FF5733",
-  //         "#33FF57",
-  //         "#3357FF",
-  //         "#F39C12",
-  //         "#9B59B6",
-  //         "#1ABC9C",
-  //         "#E74C3C",
-  //         "#3498DB",
-  //         "#2ECC71",
-  //         "#E67E22",
-  //         "#8E44AD",
-  //         "#16A085",
-  //         "#C0392B",
-  //         "#2980B9",
-  //         "#27AE60",
-  //         "#D35400"
-  //     ];
-
-  //     const index = Array.from(this.data.keys()).indexOf(name) % palette.length;
-  //     const color = palette[index];
-
-  //     this.dataColors.set(name, color);
-  //     return color;
-  // }
-
-  // toggleVariableSelection(event: Event) {
-  //     const checkbox = event.target as HTMLInputElement;
-  //     const variable = checkbox.value;
-
-  //     if (checkbox.checked) {
-  //         this.selectedVariables.add(variable);
-  //     } else {
-  //         this.selectedVariables.delete(variable);
-  //     }
-  // }
-
   handleMouseDown(event: MouseEvent) {
-      if (!this.autoScroll) {
-          this.isDragging = true;
-          this.startDragX = event.clientX;
-          this.startScrollOffset = this.scrollOffset;
-      }
+    if (!this.autoScroll) {
+      this.isDragging = true;
+      this.startDragX = event.clientX;
+      this.startScrollOffset = this.scrollOffset;
+    }
+    // Enable vertical panning if autoScaleY is off
+    if (!this.autoScaleY) {
+      this.isYDragging = true;
+      this.startDragY = event.clientY;
+      this.startYMin = this.yMin ?? 0;
+      this.startYMax = this.yMax ?? 1;
+    }
   }
 
   handleMouseMove(event: MouseEvent) {
-      if (this.isDragging && !this.autoScroll) {
-          const deltaX = event.clientX - this.startDragX;
-          const pixelsPerSample = this.canvas.clientWidth / (this.visibleSamples - 1);
-          this.scrollOffset = this.startScrollOffset - deltaX / pixelsPerSample;
+    if (this.isDragging && !this.autoScroll) {
+      const deltaX = event.clientX - this.startDragX;
+      const pixelsPerSample = this.canvas.clientWidth / (this.visibleSamples - 1);
+      this.scrollOffset = this.startScrollOffset - deltaX / pixelsPerSample;
+    }
+    // Vertical panning for y-axis
+    if (this.isYDragging && !this.autoScaleY) {
+      const deltaY = event.clientY - this.startDragY;
+      const canvas = this.canvas;
+      const dpr = window.devicePixelRatio;
+      const h = canvas.clientHeight * dpr;
+      const yRange = (this.startYMax - this.startYMin);
+      // Move yMin/yMax by a fraction of the y-range based on drag
+      const panFrac = deltaY / h;
+      let newYMin = this.startYMin + panFrac * yRange;
+      let newYMax = this.startYMax + panFrac * yRange;
+      // Enforce minimum height
+      if (newYMax - newYMin < PlotScreen.MIN_Y_HEIGHT) {
+        const center = (newYMax + newYMin) / 2;
+        newYMin = center - PlotScreen.MIN_Y_HEIGHT / 2;
+        newYMax = center + PlotScreen.MIN_Y_HEIGHT / 2;
       }
+      this.yMin = newYMin;
+      this.yMax = newYMax;
+      this.requestUpdate();
+    }
   }
 
   handleMouseUp() {
-      this.isDragging = false;
+    this.isDragging = false;
+    this.isYDragging = false;
   }
 
   handleVisibleSamplesChange(e: Event) {
@@ -236,136 +279,173 @@ export class PlotScreen extends LitElement {
   }
 
   renderData() {
-      if (!this.isConnected) {
-          return;
-      }
 
-      requestAnimationFrame(() => this.renderData());
+    if (!this.isConnected) {
+      return;
+    }
 
-      const canvas = this.canvas;
-      const ctx = this.ctx;
-      const dpr = window.devicePixelRatio;
-      const w = canvas.clientWidth * dpr;
-      const h = canvas.clientHeight * dpr;
+    // Throttle updates: only schedule next render after interval
+    if (this.renderTimer !== null) {
+      clearTimeout(this.renderTimer);
+    }
+    this.renderTimer = window.setTimeout(() => this.renderData(), this.renderInterval);
 
-      if (canvas.width != w || canvas.height != h) {
-          canvas.width = canvas.clientWidth * dpr;
-          canvas.height = canvas.clientHeight * dpr;
-      }
+    // --- Canvas drawing (same as before) ---
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    const dpr = window.devicePixelRatio;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
 
-      ctx.clearRect(0, 0, w, h);
+    if (canvas.width != w || canvas.height != h) {
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+    }
 
-      let min = Number.POSITIVE_INFINITY;
-      let max = Number.NEGATIVE_INFINITY;
+    ctx.clearRect(0, 0, w, h);
 
-      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
-      const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
-      const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
 
-      for (const [name, line] of this.data.entries()) {
-          if (!this.selectedVariables.has(name) || line.length < 2) continue;
-          for (let i = startSample; i <= endSample; i++) {
-              const value = line[i];
-              min = Math.min(min, value);
-              max = Math.max(max, value);
-          }
-      }
+    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
+    const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
 
-      const height = max - min;
-      const padding = this.padding;
-      const lineWidth = this.lineWidth;
-      const baseFontSize = 12;
-      const scaledFontSize = baseFontSize * dpr;
-      const labelPadding = scaledFontSize;
-      const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
+    // --- Stats calculation for visible window ---
+    const newStats = Array.from(this.data.entries())
+      .map(([key, values]) => {
+        if (!values.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
+        const visible = values.slice(startSample, endSample + 1).filter(v => typeof v === 'number' && !isNaN(v));
+        if (!visible.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
+        const minV = Math.min(...visible);
+        const maxV = Math.max(...visible);
+        const current = visible[visible.length - 1];
+        return { key, min: minV, max: maxV, current };
+      });
+    // Only update and requestUpdate if stats changed
+    const statsChanged = JSON.stringify(this.stats) !== JSON.stringify(newStats);
+    if (statsChanged) {
+      this.stats = newStats;
+      this.requestUpdate();
+    }
 
-      const pixelsPerSample = (w - padding * 2) / (this.visibleSamples - 1);
-
-      if (this.autoScroll && maxSamples > this.visibleSamples) {
-          const targetScrollOffset = maxSamples - this.visibleSamples / 2;
-          this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
-      }
-
-      ctx.save();
-      const labelHeight = 50;
-      const numYLabels = Math.floor(h / labelHeight);
-      ctx.fillStyle = "#aaa";
-      ctx.font = `${scaledFontSize}px Arial`;
-      ctx.textAlign = "left";
-
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-      ctx.lineWidth = 1 * dpr;
-      for (let i = 0; i <= numYLabels; i++) {
-          const yValue = min + (i / numYLabels) * height;
-          const y = h - labelPadding - padding - (yValue - min) * scaleY;
-          ctx.beginPath();
-          ctx.moveTo(padding, y);
-          ctx.lineTo(w - padding, y);
-          ctx.stroke();
-          ctx.fillText(yValue.toFixed(2), 5 * dpr, y + scaledFontSize / 2);
-      }
-      ctx.restore();
-
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillStyle = "#aaa";
-      ctx.font = `${scaledFontSize}px Arial`;
-
-      const labelWidthPx = 96 * dpr;
-      const numXLabels = Math.floor(w / labelWidthPx);
-      const step = Math.ceil(this.visibleSamples / numXLabels);
-
+    // --- Canvas drawing (unchanged) ---
+    for (const [name, line] of this.data.entries()) {
+      if (!this.selectedVariables.has(name) || line.length < 2) continue;
       for (let i = startSample; i <= endSample; i++) {
+        const value = line[i];
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+    // Only update yMin/yMax from data if autoScaleY is enabled
+    if (this.autoScaleY) {
+      this.yMin = min;
+      this.yMax = max;
+    } else if (this.yMin === null || this.yMax === null) {
+      // If manual mode but yMin/yMax not set, initialize to data range
+      this.yMin = min;
+      this.yMax = max;
+    }
+
+    const yMin = this.yMin ?? min;
+    const yMax = this.yMax ?? max;
+    const height = yMax - yMin;
+    const padding = this.padding;
+    const lineWidth = this.lineWidth;
+    const baseFontSize = 12;
+    const scaledFontSize = baseFontSize * dpr;
+    const labelPadding = scaledFontSize;
+    const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
+
+    const pixelsPerSample = (w - padding * 2) / (this.visibleSamples - 1);
+
+    if (this.autoScroll && maxSamples > this.visibleSamples) {
+      const targetScrollOffset = maxSamples - this.visibleSamples / 2;
+      this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
+    }
+
+    ctx.save();
+    const labelHeight = 50;
+    const numYLabels = Math.floor(h / labelHeight);
+    ctx.fillStyle = "#aaa";
+    ctx.font = `${scaledFontSize}px Arial`;
+    ctx.textAlign = "left";
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+    ctx.lineWidth = 1 * dpr;
+    for (let i = 0; i <= numYLabels; i++) {
+      const yValue = yMin + (i / numYLabels) * height;
+      const y = h - labelPadding - padding - (yValue - yMin) * scaleY;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(w - padding, y);
+      ctx.stroke();
+      ctx.fillText(yValue.toFixed(2), 5 * dpr, y + scaledFontSize / 2);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#aaa";
+    ctx.font = `${scaledFontSize}px Arial`;
+
+    const labelWidthPx = 96 * dpr;
+    let numXLabels = Math.floor(w / labelWidthPx);
+    if (numXLabels < 1) numXLabels = 1;
+    let step = Math.ceil(this.visibleSamples / numXLabels);
+    if (step < 1) step = 1;
+
+    for (let i = startSample; i <= endSample; i++) {
+      const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+
+      if (x >= padding && x <= w - padding && i % step === 0) {
+        ctx.fillText(i.toString(), x, h - labelPadding);
+      }
+    }
+    ctx.restore();
+
+    for (const [name, line] of this.data.entries()) {
+      if (!this.selectedVariables.has(name) || line.length < 2) continue;
+
+      ctx.strokeStyle = this.getDataColor(name);
+      ctx.lineWidth = lineWidth;
+      ctx.save();
+      ctx.beginPath();
+      let hasStarted = false;
+
+      for (let i = startSample; i <= endSample && i < line.length; i++) {
+        const value = line[i];
+        if (value != null) {
           const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+          const y = h - labelPadding - padding - (value - yMin) * scaleY;
 
-          if (x >= padding && x <= w - padding && i % step === 0) {
-              ctx.fillText(i.toString(), x, h - labelPadding);
+          if (!hasStarted) {
+            ctx.moveTo(x, y);
+            hasStarted = true;
+          } else {
+            ctx.lineTo(x, y);
           }
+        }
       }
+
+      ctx.stroke();
       ctx.restore();
-
-      for (const [name, line] of this.data.entries()) {
-          if (!this.selectedVariables.has(name) || line.length < 2) continue;
-
-          ctx.strokeStyle = this.getDataColor(name);
-          ctx.lineWidth = lineWidth;
-          ctx.save();
-          ctx.beginPath();
-          let hasStarted = false;
-
-          for (let i = startSample; i <= endSample && i < line.length; i++) {
-              const value = line[i];
-              if (value != null) {
-                  const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
-                  const y = h - labelPadding - padding - (value - min) * scaleY;
-
-                  if (!hasStarted) {
-                      ctx.moveTo(x, y);
-                      hasStarted = true;
-                  } else {
-                      ctx.lineTo(x, y);
-                  }
-              }
-          }
-
-          ctx.stroke();
-          ctx.restore();
-      }
+    }
   }
 
   render() {
-    // Compute statistics for each variable
-    const stats = Array.from(this.data.entries())
-      .map(([key, values]) => {
-        if (!values.length) return null;
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const current = values[values.length - 1];
-        return { key, min, max, current };
-      })
-      .filter((stat): stat is { key: string; min: number; max: number; current: number } => stat !== null);
-
+    // Compute statistics for each variable for the visible window
+    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    // Clamp visibleSamples to maxSamples if needed
+    let visibleSamples = Math.min(this.visibleSamples, maxSamples > 0 ? maxSamples : this.visibleSamples);
+    if (visibleSamples !== this.visibleSamples) {
+      this.visibleSamples = visibleSamples;
+    }
+    const startSample = Math.max(0, Math.floor(this.scrollOffset - visibleSamples / 2));
+    const endSample = Math.min(Math.ceil(this.scrollOffset + visibleSamples / 2), maxSamples - 1);
+    const stats: Array<{ key: string; min: number | string; max: number | string; current: number | string }> = this.stats;
     return html`
       <div style="display: flex; flex-direction: column; gap: 1.2rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1.2rem 1.2rem 1.8rem 1.2rem; background: #232323;">
         <!-- Statistics Table -->
@@ -399,11 +479,22 @@ export class PlotScreen extends LitElement {
           <input
             type="range"
             min="10"
-            max="1000"
-            .value="${String(this.visibleSamples)}"
+            max="${Math.max(10, maxSamples)}"
+            .value="${String(visibleSamples)}"
             @input=${this.handleVisibleSamplesChange}
             style="flex-grow: 1; max-width: 350px; outline: none;"
           />
+          <label style="margin-left: 1em;">
+            <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {
+              this.autoScaleY = (e.target as HTMLInputElement).checked;
+              if (this.autoScaleY) {
+                this.yMin = null;
+                this.yMax = null;
+              }
+              this.requestUpdate();
+            }} />
+            Auto-scale Y
+          </label>
         </div>
         <!-- Plot Area -->
         <div style="resize: vertical; overflow: auto; width: 100%; height: 400px; background: #181818; border-radius: 6px; border: 1px solid #444;">

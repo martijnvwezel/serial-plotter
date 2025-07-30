@@ -1,34 +1,11 @@
-declare global {
-	interface HTMLElementTagNameMap {
-		'sidebar-view': SidebarView;
-	}
-}
 
-class SidebarView extends HTMLElement {
-	private _variableConfig: Record<string, { color: string }> = {};
-
-	setVariableConfig(config: Record<string, { color: string }>) {
-		this._variableConfig = { ...config };
-		// Optionally trigger a re-render or update if needed
-		this.dispatchEvent(new CustomEvent('variable-config-updated', { detail: this._variableConfig }));
-	}
-
-	getVariableConfig(): Record<string, { color: string }> {
-		return { ...this._variableConfig };
-	}
-}
-
-if (!customElements.get('sidebar-view')) {
-	customElements.define('sidebar-view', SidebarView);
-}
-// DEBUG MODE: Set to true to enable fake serial port with 3 sine waves
-const DEBUG = true;
-import { LitElement, PropertyValueMap, html, nothing } from "lit";
+import { LitElement, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
 import "./components/plot_screen";
+import "./components/variables_view_";
 
 interface VSCodeApi {
 	postMessage(data: ProtocolRequests): void;
@@ -36,8 +13,8 @@ interface VSCodeApi {
 declare function acquireVsCodeApi(): VSCodeApi;
 const vscode = acquireVsCodeApi() as VSCodeApi;
 
-@customElement("port-selector")
-class PortSelector extends LitElement {
+@customElement("serial-plotter-app")
+class SerialPlotterApp extends LitElement {
 	@state()
 	ports: Port[] = [];
 
@@ -50,7 +27,67 @@ class PortSelector extends LitElement {
 	@state()
 	error?: string;
 
-	plotter?: SerialPlotter;
+	@state()
+	private screen: 'raw' | 'plot' = 'plot';
+
+	@state()
+	autoVariableUpdate: boolean = true;
+
+	public lineBuffer: string[] = ["Connecting ..."];
+	public variableMap: Map<string, number[]> = new Map<string, number[]>();
+	public autoScrollEnabled = true;
+	@state()
+	public hideData = false;
+	@property()
+	samplesExceeded = false;
+
+	// Variable config: { name: { color: string } }
+	private variableConfig: Record<string, { color: string }> = {};
+	private variableOrder: string[] = [];
+
+  private colorPalette = [
+	"#f92672", // pink
+	"#a6e22e", // green
+	"#66d9ef", // cyan
+	"#fd971f", // orange
+	"#e6db74", // yellow
+	"#9e6ffe", // purple
+	"#cc6633", // brown
+	"#f8f8f2", // white
+	"#75715e", // comment gray
+	"#ae81ff", // violet
+	"#f4bf75", // gold
+	"#cfcfc2", // light gray
+	"#272822", // background dark
+	"#1e0010", // dark purple
+	"#465457", // blue gray
+	"#b6e354"  // lime
+  ];
+
+  firstUpdated() {
+	// Listen for a custom event from sidebar-view
+	const sidebar = this.renderRoot.querySelector('sidebar-view');
+	if (sidebar) {
+	  sidebar.addEventListener('variable-config-changed', (e: any) => {
+		this.variableConfig = e.detail;
+		// Forward to plot-screen
+		const plot = this.renderRoot.querySelector('plot-screen') as any;
+		if (plot && typeof plot.setVariableConfig === 'function') {
+		  plot.setVariableConfig(this.variableConfig);
+		  // Also update line colors for each variable
+		  for (const key of Object.keys(this.variableConfig)) {
+			const arr = this.variableMap.get(key);
+			if (arr && arr.length > 0 && typeof plot.updateLineColors === 'function') {
+			  plot.updateLineColors(key, arr[arr.length - 1]);
+			}
+		  }
+		}
+	  });
+	}
+  }
+
+
+	private stopped = false;
 
 	createRenderRoot(): Element | ShadowRoot {
 		return this;
@@ -68,7 +105,9 @@ class PortSelector extends LitElement {
 			if (message.type == "ports-response") {
 				const previouslySelected = this.selected;
 				this.ports = [
-					...message.ports,
+					// ...message.ports,
+					// remove ttyS from message.ports
+					...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
 					{ path: '/dev/fake_serial', manufacturer: 'Simulated' }
 				];
 				if (previouslySelected) {
@@ -85,6 +124,9 @@ class PortSelector extends LitElement {
 				}
 				this.error = "Could not open port or device disconnected";
 			}
+			if (message.type == "data") {
+				this.handleSerialData(message.text);
+			}
 		};
 		window.addEventListener("message", callback);
 		vscode.postMessage({ type: "ports" });
@@ -93,10 +135,34 @@ class PortSelector extends LitElement {
 	handleFakeData() {
 		this.error = "";
 		this.running = true;
-		this.plotter?.remove();
-		this.plotter = undefined;
-		this.plotter = new SerialPlotter({ path: '/dev/fake_serial', manufacturer: 'Simulated' }, 115200);
-		document.body.append(this.plotter);
+		this.stopped = false;
+		this.lineBuffer = ["Connecting ..."];
+		this.variableMap = new Map();
+		let t = 0;
+		const dt = 0.05;
+		const fakeColors = [
+			this.colorPalette[0],
+			this.colorPalette[1],
+			this.colorPalette[2]
+		];
+		const sendFakeData = () => {
+			if (t % (dt * 100) === 0) {
+				const now = new Date();
+				const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
+				const header = `[${ts}] header   sin1:'${fakeColors[0]}' sin2:'${fakeColors[1]}' sin3:'${fakeColors[2]}'`;
+				this.processData(header, true);
+			}
+			const now = new Date();
+			const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
+			const s1 = Math.sin(t).toFixed(4);
+			const s2 = Math.sin(t + Math.PI / 2).toFixed(4);
+			const s3 = Math.sin(t + Math.PI).toFixed(4);
+			const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
+			this.processData(line, false);
+			t += dt;
+			if (!this.stopped && this.running) setTimeout(sendFakeData, 30);
+		};
+		sendFakeData();
 	}
 
 	handlePortChange(e: Event) {
@@ -112,50 +178,147 @@ class PortSelector extends LitElement {
 		if (!this.selected) return;
 		this.error = "";
 		this.running = !this.running;
+		this.stopped = !this.running;
 		if (this.running) {
-			this.plotter?.remove();
-			this.plotter = undefined;
-			const baudRate = this.querySelector<HTMLInputElement>("#baud")?.value;
-			this.plotter = new SerialPlotter(this.ports.find((p) => p.path === this.selected)!, baudRate ? Number.parseInt(baudRate) : 9600);
-			// Preserve the user's autoVariableUpdate toggle state
-			this.plotter.autoVariableUpdate = this.autoVariableUpdate;
-			document.body.append(this.plotter);
-
-			// Ensure plot-screen is updated with variableConfig and data
-			const plotScreen = document.querySelector("plot-screen") as any;
-			if (plotScreen) {
-				const sidebar = document.querySelector('sidebar-view') as any;
-				plotScreen.setVariableConfig(sidebar.getVariableConfig());
-				plotScreen.data = this.plotter.variableMap;
+			this.lineBuffer = ["Connecting ..."];
+			this.variableMap = new Map();
+			if (this.selected === '/dev/fake_serial') {
+				this.handleFakeData();
+			} else {
+				this.startSerial();
 			}
 		} else {
-			this.plotter?.stop();
+			this.stopSerial();
 		}
 	}
 
+	startSerial() {
+		window.addEventListener("message", (ev: { data: ProtocolResponse }) => {
+			const message = ev.data;
+			if (message.type == "error") {
+				// FIXME
+			}
+			if (message.type == "data") {
+				this.handleSerialData(message.text);
+			}
+		});
+		const baudRate = this.getBaudRate();
+		const request: StartMonitorPortRequest = {
+			type: "start-monitor",
+			port: this.selected!,
+			baudRate: baudRate
+		};
+		vscode.postMessage(request);
+	}
 
-	@state()
-	private screen: 'raw' | 'plot' = 'plot';
+	stopSerial() {
+		const request: StopMonitorPortRequest = {
+			type: "stop-monitor"
+		};
+		vscode.postMessage(request);
+		this.stopped = true;
+	}
 
-	@state()
-	autoVariableUpdate: boolean = true;
+	getBaudRate(): number {
+		const baudSelect = this.querySelector<HTMLInputElement>("#baud");
+		return baudSelect ? Number.parseInt(baudSelect.value) : 9600;
+	}
+
+	private handleSerialData(text: string) {
+		this.processData(text, false);
+	}
+
+	private processData(data: string, isHeaderLine = false) {
+		if (this.stopped) return;
+		const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
+		// Always show header in the raw text area
+		if (isHeaderLine) {
+			this.lineBuffer.push(data);
+		} else {
+			this.lineBuffer.push(...lines);
+		}
+		this.lineBuffer = [...this.lineBuffer];
+		// Live update the raw-data-view if present
+		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
+		if (rawDataView && typeof rawDataView.addLine === 'function') {
+			if (isHeaderLine) {
+				rawDataView.addLine([data]);
+			} else {
+				rawDataView.addLine(lines);
+			}
+		}
+		lines.forEach((line) => {
+			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
+			// Always check for header in the line (case-insensitive, anywhere in the line)
+			const headerMatch = line.match(/header\b/i);
+			if (headerMatch) {
+				this.parseHeaderLine(line);
+				this.variableMap = new Map();
+				return;
+			}
+			// No header: update variables dynamically
+			const parts = line.split(/[ \t,;]+/).filter(Boolean);
+			// Only allow adding new variables if variableConfig has fewer than parts.length
+			const maxVars = Object.keys(this.variableConfig).length;
+			parts.forEach((val: string, idx: number) => {
+				let name = this.variableOrder[idx] || `line${idx + 1}`;
+				if (this.autoVariableUpdate) {
+					const color = this.colorPalette[idx % this.colorPalette.length];
+					if (maxVars < (idx + 1)) {
+						name = 'line' + (idx + 1);
+					}
+					if (!this.variableConfig[name]) {
+						this.variableConfig[name] = { color };
+						this.variableOrder.push(name);
+					}
+				}
+				// Add data to the variable
+				let arr = this.variableMap.get(name) ?? [];
+				const numVal = parseFloat(val);
+				arr.push(!isNaN(numVal) ? numVal : 0);
+				if (arr.length > 1000000) {
+					arr = arr.slice(-1000000);
+					this.samplesExceeded = true;
+				}
+				this.variableMap.set(name, arr);
+			});
+		});
+
+		const plotScreen = document.querySelector("plot-screen") as any;
+			if (plotScreen) {
+				const sidebar = document.querySelector('sidebar-view') as any;
+				plotScreen.setVariableConfig(sidebar.getVariableConfig());
+			}
+	}
+
+	private parseHeaderLine(line: string) {
+		let line_low = line.toLowerCase();
+		const headerMatch = line_low.match(/^header\s+(.*)$/i);
+		if (!headerMatch) return;
+		const rest = headerMatch[1];
+		const regex = /(\w+)(?::'([^']+)')?/g;
+		let match;
+		this.variableConfig = {};
+		this.variableOrder = [];
+		let colorIdx = 0;
+		while ((match = regex.exec(rest)) !== null) {
+			const name = match[1];
+			let color = match[2];
+			if (!color) {
+				color = this.colorPalette[colorIdx % this.colorPalette.length];
+				colorIdx++;
+			}
+			this.variableConfig[name] = { color };
+			this.variableOrder.push(name);
+		}
+	}
 
 	private handleScreenToggle() {
 		this.screen = this.screen === 'raw' ? 'plot' : 'raw';
-		if (this.screen === 'plot') {
-			const plotScreen = document.querySelector('plot-screen') as any;
-			const sidebar = document.querySelector('sidebar-view') as any;
-			if (plotScreen && sidebar) {
-				plotScreen.setVariableConfig(sidebar.getVariableConfig());
-			}
-		}
 	}
 
 	private handleAutoVariableUpdateToggle() {
 		this.autoVariableUpdate = !this.autoVariableUpdate;
-		if (this.plotter) {
-			this.plotter.autoVariableUpdate = this.autoVariableUpdate;
-		}
 	}
 
 	render() {
@@ -308,397 +471,25 @@ class PortSelector extends LitElement {
 		 ${this.error ? html`<div class="error-message">${this.error}</div>` : nothing}
 		 <div class="main-layout">
 			<div class="sidebar">
-				<sidebar-view id="sidebar" .variableMap=${this.plotter?.variableMap ?? new Map()}></sidebar-view>
+				<sidebar-view id="sidebar" .variableMap=${this.variableMap} .variableConfig=${this.variableConfig}></sidebar-view>
 			</div>
 			<div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
-			   ${this.screen === 'raw'
-				? html`<raw-data-view id="rawdataview"
-						.autoScrollEnabled=${this.plotter?.autoScrollEnabled ?? true}
-						.hideData=${this.plotter?.hideData ?? false}
-					 ></raw-data-view>`
-				: html`<plot-screen id="plotscreen"
-						.data=${this.plotter?.variableMap ?? new Map()}
-						.variableConfig=${document.querySelector('sidebar-view')?.getVariableConfig() ?? {}}
-					 ></plot-screen>`}
+		   ${this.screen === 'raw'
+			   ? html`<raw-data-view id="rawdataview"
+					   .autoScrollEnabled=${this.autoScrollEnabled}
+					   .hideData=${this.hideData}
+					   .lineBuffer=${this.lineBuffer}
+					   ></raw-data-view>`
+			   : html`<plot-screen id="plotscreen"
+					   .data=${this.variableMap}
+					   .variableConfig=${this.variableConfig}
+					   ></plot-screen>`}
 			</div>
 		 </div>
 	  `;
 	}
 }
 
-@customElement("serial-plotter")
-class SerialPlotter extends LitElement {
-	// Helper to update sidebar-view with variable config
-	private updateSidebarVariableConfig() {
-		const sidebar = document.querySelector('sidebar-view') as any;
-		if (sidebar && typeof sidebar.setVariableConfig === 'function') {
-			sidebar.setVariableConfig(this.variableConfig);
-		}
 
-		const plotScreen = document.querySelector('plot-screen') as any;
-		if (plotScreen && typeof plotScreen.setVariableConfig === 'function') {
-			plotScreen.setVariableConfig(this.variableConfig);
-		}
-	}
-
-
-	public autoVariableUpdate: boolean = true;
-	public lineBuffer: string[] = ["Connecting ..."];
-	public variableMap: Map<string, number[]> = new Map<string, number[]>();
-	private stopped = false;
-	public autoScrollEnabled = true;
-	@state()
-	public hideData = false;
-	@property()
-	samplesExceeded = false;
-
-	// Variable config: { name: { color: string } }
-	private variableConfig: Record<string, { color: string }> = {};
-	private variableOrder: string[] = [];
-
-	private colorPalette = [
-		"#b86b4b", // muted orange
-		"#4bb86b", // muted green
-		"#4b6bb8", // muted blue
-		"#b89b4b", // muted yellow
-		"#7d5fa6", // muted purple
-		"#4bb8a6", // muted teal
-		"#b84b4b", // muted red
-		"#4b8ab8", // muted cyan
-		"#6bb84b", // muted lime
-		"#b88a4b", // muted brown
-		"#6b4bb8", // muted violet
-		"#4bb88a", // muted aquamarine
-		"#b84b6b", // muted pink
-		"#4b6bb8", // muted blue (repeat for palette)
-		"#4bb86b", // muted green (repeat)
-		"#b86b4b"  // muted orange (repeat)
-	];
-
-	private parseHeaderLine(line: string) {
-		// Example: header   line1:'green' line2:'#a5654' lINE_grap:'red'
-		// make  lower text line 
-
-		// remove time part first ] found should be delete with the space behidn it 
-
-		let line_low = line.toLowerCase();
-		// delete teh time part the first 15 chars 
-
-
-		const headerMatch = line_low.match(/^header\s+(.*)$/i);
-
-		if (!headerMatch) return;
-		// log the headermatch 
-
-		const rest = headerMatch[1];
-		// Match: name:'color' or just name
-		const regex = /(\w+)(?::'([^']+)')?/g;
-		let match;
-		this.variableConfig = {};
-		this.variableOrder = [];
-		let colorIdx = 0;
-		while ((match = regex.exec(rest)) !== null) {
-			const name = match[1];
-			let color = match[2];
-			if (!color) {
-				color = this.colorPalette[colorIdx % this.colorPalette.length];
-				colorIdx++;
-			}
-			this.variableConfig[name] = { color };
-			this.variableOrder.push(name);
-		}
-		// Log the new variables and their colors
-		console.log("[SerialPlotter] Parsed header. Variables and colors:", this.variableConfig);
-	}
-
-	private parseDataLine(line: string): Record<string, number | null> | null {
-		if (!this.variableOrder.length) return null;
-		// Split by tab, comma, semicolon, or whitespace
-		const parts = line.split(/[\t,;\s]+/).filter(Boolean);
-		if (parts.length < 1) return null;
-		const result: Record<string, number | null> = {};
-		for (let i = 0; i < this.variableOrder.length; ++i) {
-			const name = this.variableOrder[i];
-			const val = parts[i];
-			result[name] = val !== undefined ? parseFloat(val) : null;
-		}
-		return result;
-	}
-
-	constructor(readonly port: Port, readonly baudRate: number) {
-		super();
-	}
-
-	start() {
-		const raw = this.querySelector<HTMLElement>("#raw")!;
-		const rawParent = raw.parentElement!;
-		const variables = this.querySelector<VariablesView>("#variables")!;
-
-		if (this.port.path === '/dev/fake_serial') {
-			// Simulate 3 sine waves
-			let t = 0;
-			const dt = 0.05;
-			const fakeColors = [
-				this.colorPalette[0], // muted orange
-				this.colorPalette[1], // muted green
-				this.colorPalette[2]  // muted blue
-			];
-			const sendFakeData = () => {
-				// header line every 100 samples
-				if (t % (dt * 100) === 0) {
-					const now = new Date();
-					const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-					const header = `[${ts}] header   sin1:'${fakeColors[0]}' sin2:'${fakeColors[1]}' sin3:'${fakeColors[2]}'`;
-					this.processData(header, raw, variables, true);
-				}
-				const now = new Date();
-				const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-				const s1 = Math.sin(t).toFixed(4);
-				const s2 = Math.sin(t + Math.PI / 2).toFixed(4);
-				const s3 = Math.sin(t + Math.PI).toFixed(4);
-				const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
-				this.processData(line, raw, variables, false);
-				t += dt;
-				if (!this.stopped) setTimeout(sendFakeData, 30);
-			};
-			sendFakeData();
-			return;
-		}
-
-		window.addEventListener("message", (ev: { data: ProtocolResponse }) => {
-			const message = ev.data;
-			if (message.type == "error") {
-				// FIXME
-			}
-			if (message.type == "data") {
-				// Add timestamp to each line as soon as it arrives
-				const addTimestamp = (line: string) => {
-					const now = new Date();
-					const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
-					return `[${ts}] ${line}`;
-				};
-				const lines = message.text.split(/\r?\n/).filter(l => l.length > 0);
-				const stampedText = lines.map(addTimestamp).join("\n");
-				this.processData(stampedText, raw, variables);
-				if (this.autoScrollEnabled) {
-					rawParent.scrollTop = rawParent.scrollHeight;
-				}
-			}
-		});
-
-		const request: StartMonitorPortRequest = {
-			type: "start-monitor",
-			port: this.port.path,
-			baudRate: this.baudRate
-		};
-		vscode.postMessage(request);
-		raw.textContent = this.lineBuffer.filter((line) => this.hideData && line.trim().startsWith(">")).join("\n");
-	}
-
-	processData(data: string, raw: HTMLElement, variables: VariablesView, isHeaderLine = false) {
-		if (this.stopped) return;
-		const first = this.variableMap.size == 0;
-		// Accept both single line and multi-line input
-		const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
-
-		// Add lines to the persistent raw-data-view
-		const rawDataView = document.querySelector('raw-data-view') as any;
-		if (rawDataView && typeof rawDataView.addLine === 'function') {
-			// Always show header line as a visible line
-			if (isHeaderLine) {
-				rawDataView.addLine([data]);
-			} else {
-				rawDataView.addLine(lines);
-			}
-		}
-
-		// Always show header in the raw text area
-		if (isHeaderLine) {
-			this.lineBuffer.push(data);
-		} else {
-			this.lineBuffer.push(...lines);
-		}
-		this.lineBuffer = [...this.lineBuffer];
-		if (this.lineBuffer.length > 100000) {
-			this.lineBuffer = this.lineBuffer.slice(-100000);
-		}
-
-		lines.forEach((line) => {
-			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
-			// Always check for header in the line (case-insensitive, anywhere in the line)
-			const headerMatch = line.match(/header\b/i);
-			if (headerMatch) {
-				console.log("[SerialPlotter] Header found");
-				this.parseHeaderLine(line);
-				this.variableMap = new Map();
-				variables.data = new Map();
-				variables.requestUpdate();
-				this.updateSidebarVariableConfig();
-				
-				return;
-			} 
-			// No header: update variables dynamically
-			const parts = line.split(/[ \t,;]+/).filter(Boolean);
-
-			// Only allow adding new variables if variableConfig has fewer than parts.length
-			const maxVars = Object.keys(this.variableConfig).length;
-			parts.forEach((val: string, idx: number) => {
-				let  name = this.variableOrder[idx] || `line${idx + 1}`;
-				// log name of the variable, pllot idx val name and parts length 
-				// Automatically determine variable config if not already present
-				if (this.autoVariableUpdate) {
-					const color = this.colorPalette[idx % this.colorPalette.length];
-					if (maxVars < (idx + 1)) {
-						name = 'line' + (idx + 1);
-					}
-
-					if (!this.variableConfig[name]) {
-						console.log(`[SerialPlotter] Adding new variable: ${name}, color: ${color}`);
-						this.variableConfig[name] = { color };
-						this.variableOrder.push(name);
-						this.updateSidebarVariableConfig();
-					}
-				}
-
-				// Add data to the variable
-				let arr = this.variableMap.get(name) ?? [];
-				const numVal = parseFloat(val);
-				arr.push(!isNaN(numVal) ? numVal : 0);
-				if (arr.length > 1000000) {
-					arr = arr.slice(-1000000);
-					this.samplesExceeded = true;
-				}
-				this.variableMap.set(name, arr);
-			});
-			
-	 
-		});
-
-		const plotScreen = document.querySelector('plot-screen') as any;
-		const sidebar = document.querySelector('sidebar-view') as any;
-		if (plotScreen && sidebar) {
-			plotScreen.setVariableConfig(sidebar.getVariableConfig());
-		}
-
-
-	}
-
-	stop() {
-		const request: StopMonitorPortRequest = {
-			type: "stop-monitor"
-		};
-		vscode.postMessage(request);
-		this.stopped = true;
-	}
-
-	createRenderRoot(): Element | ShadowRoot {
-		return this;
-	}
-
-	firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
-		super.firstUpdated(_changedProperties);
-		this.start();
-	}
-
-	handlePauseAutoScroll() {
-		this.autoScrollEnabled = this.querySelector<HTMLInputElement>("#autoscroll")?.checked ?? true;
-	}
-
-	handleHideShowData() {
-		this.hideData = this.querySelector<HTMLInputElement>("#hidedata")?.checked ?? true;
-	}
-
-	handleClearRaw() {
-		this.lineBuffer.length = 0;
-		const raw = this.querySelector<HTMLElement>("#raw")!;
-		raw.textContent = this.lineBuffer.filter((line) => this.hideData ? !line.trim().startsWith(">") : true).slice(-1000).join("\n");
-	}
-
-	handleAddPlot() {
-		// PlotView is removed; add plot logic should be handled in plot_screen if needed.
-	}
-
-	render() {
-		return html`
-			<div id="root" style="display: flex; flex-direction: column; gap: 1rem; width: 100%; padding-top: 1rem;">
-				${this.samplesExceeded ? html`<div style="border: 1px solid #300; background: #cc000087; color: #aaa; padding: 1rem;"></div>` : nothing}
-				<div style="display: flex; flex-direction: column; gap: 1rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1rem;">
-					<div style="display: flex; gap: 1rem; justify-items: center; align-items: center;">
-						<span style="font-size: 1.25rem; font-weight: 600">Raw</span>
-						<label><input id="autoscroll" type="checkbox" @change=${this.handlePauseAutoScroll} checked />Auto-scroll</label>
-						<label><input id="hidedata" type="checkbox" @change=${this.handleHideShowData} />Hide data lines</label>
-						<button id="clearraw" @click=${this.handleClearRaw}>Clear</button>
-					</div>
-					<pre style="resize: vertical; overflow: auto; height: 10rem; width: 100%; margin: 0;"><code id="raw"></code></pre>
-				</div>
-				<variables-view id="variables" .data=${this.variableMap}></variables-view>
-				<plot-view .data=${this.variableMap}></plot-view>
-				<button id="addplot" @click=${this.handleAddPlot} style="align-self: flex-start">Add plot</button>
-			</div>
-		`;
-	}
-}
-
-@customElement("variables-view")
-class VariablesView extends LitElement {
-	@property()
-	data: Map<string, number[]> = new Map<string, number[]>();
-
-	private minMax: Map<string, { min: number; max: number }> = new Map();
-
-	createRenderRoot(): Element | ShadowRoot {
-		return this;
-	}
-
-	// Calculate min and max for each variable before each update
-	willUpdate(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
-		this.data.forEach((values, key) => {
-			if (values.length > 0) {
-				const currentMin = Math.min(...values);
-				const currentMax = Math.max(...values);
-				this.minMax.set(key, {
-					min: currentMin,
-					max: currentMax
-				});
-			}
-		});
-	}
-
-	render() {
-		return html`
-			<div style="display: flex; flex-direction: column; gap: 1rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1rem;">
-				<span style="font-size: 1.25rem; font-weight: 600">Variables</span>
-				<table style="width: 100%; border-collapse: collapse; table-layout: auto;">
-					<thead>
-						<tr>
-							<th style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">Name</th>
-							<th style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">Min</th>
-							<th style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">Max</th>
-							<th style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">Current</th>
-						</tr>
-					</thead>
-					<tbody>
-						${Array.from(this.data.entries()).map(([key, values]) => {
-			const current = values[values.length - 1];
-			const minMax = this.minMax.get(key) || { min: 0, max: 0 };
-
-			return html`
-								<tr>
-									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${key}</td>
-									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${minMax.min}</td>
-									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${minMax.max}</td>
-									<td style="border: 1px dashed #aaa; padding: 0.5rem; white-space: nowrap; text-align: center;">${current}</td>
-								</tr>
-							`;
-		})}
-					</tbody>
-				</table>
-			</div>
-		`;
-	}
-}
-
-// ...PlotView removed. All plotting logic should be in plot_screen component now.
-
-document.body.append(new PortSelector());
-
+// Mount the new app element
+document.body.append(document.createElement('serial-plotter-app'));

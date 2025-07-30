@@ -14,9 +14,12 @@ export class SidebarView extends LitElement {
 
   setVariableConfig(config: Record<string, { color: string }>) {
     this.variableConfig = { ...config };
-    // log this variable config
-    // console.log("Variable Config:", this.variableConfig);
     this.requestUpdate();
+    this.dispatchEvent(new CustomEvent('variable-config-changed', {
+      detail: this.getVariableConfig(),
+      bubbles: true,
+      composed: true
+    }));
   }
 
   getVariableConfig(): Record<string, { color: string }> {
@@ -48,5 +51,10 @@ export class SidebarView extends LitElement {
     const newColor = input.value;
     this.variableConfig[key] = { color: newColor };
     this.requestUpdate();
+    this.dispatchEvent(new CustomEvent('variable-config-changed', {
+      detail: this.getVariableConfig(),
+      bubbles: true,
+      composed: true
+    }));
   }
 }
