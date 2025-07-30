@@ -1,13 +1,21 @@
+
 import { LitElement, html, PropertyValueMap } from "lit";
 import { property, customElement, state } from "lit/decorators.js";
 
 @customElement("plot-screen")
 export class PlotScreen extends LitElement {
   // Throttle renderData updates
-  private renderInterval = 50; // ms, ~20 FPS
+  private renderInterval = 30; // ms, ~20 FPS
   private renderTimer: number | null = null;
+
+
   // Allow external updates to add a new line of data (like raw_data_view)
   public addLine(variable: string, value: number) {
+    // Only add data if variable is present in variableConfig (i.e., not deleted)
+    if (!this.variableConfig.hasOwnProperty(variable)) {
+      // Variable is not in config, do not add data
+      return;
+    }
     // Add or update the graph data for the variable
     let graphData = this.data.get(variable) ?? [];
     graphData.push(value);
@@ -28,6 +36,11 @@ export class PlotScreen extends LitElement {
 
   // Renamed updateLine to updateLineColors for clarity
   public updateLineColors(variable: string, value: number) {
+    // Only add data if variable is present in variableConfig (i.e., not deleted)
+    if (!this.variableConfig.hasOwnProperty(variable)) {
+      // Variable is not in config, do not add data
+      return;
+    }
     // Add or update the data for the variable
     let arr = this.data.get(variable) ?? [];
     arr.push(value);
@@ -40,17 +53,29 @@ export class PlotScreen extends LitElement {
     if (!this.dataColors.has(variable)) {
         this.getDataColor(variable);
     }
-
-    // Log the new data
-    console.log(`[PlotScreen] New data added for variable '${variable}': ${value}`);
   }
 
-  // Allow external update of variable config (colors, etc) from sidebar
-  public setVariableConfig(config: Record<string, { color: string }>) {
 
+  /**
+   * Config for each variable: { color, visablename }
+   */
+  @property({ type: Object })
+  variableConfig: Record<string, { color: string; visablename: string }> = {};
+
+  // Allow external update of variable config (colors, visablename, etc) from sidebar
+  public setVariableConfig(config: Record<string, { color: string; visablename: string }>) {
+    console.log("variables set", config);
+    
+    this.variableConfig = config;
+    // Remove data for variables that are no longer in config
+    for (const key of Array.from(this.data.keys())) {
+      if (!config.hasOwnProperty(key)) {
+        this.data.delete(key);
+      }
+    }
     // Update dataColors map
     const newColors = new Map<string, string>();
-    for (const [name, obj] of Object.entries(config)) {
+    for (const [name, obj] of Object.entries(config)) { // TODO fix auto color fixing
       newColors.set(name, obj.color);
     }
     this.dataColors = newColors;
@@ -70,6 +95,7 @@ export class PlotScreen extends LitElement {
   autoScroll: boolean = true;
   @state()
   visibleSamples: number = 8196;
+  static readonly MIN_VISIBLE_SAMPLES = 10;
   @state()
   scrollOffset: number = (this.visibleSamples - 1) / 2;
   @state()
@@ -187,7 +213,7 @@ export class PlotScreen extends LitElement {
   @property()
   lineWidth = 2;
   @property()
-  maxSamples = 1000000;
+  maxSamples = 10000000;
 
   isDragging = false;
   startDragX = 0;
@@ -202,6 +228,7 @@ export class PlotScreen extends LitElement {
   }
 
   firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>): void {
+    super.firstUpdated(_changedProperties);
     this.canvas = this.querySelector<HTMLCanvasElement>("canvas")!;
     this.ctx = this.canvas.getContext("2d")!;
     this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
@@ -392,10 +419,8 @@ export class PlotScreen extends LitElement {
     ctx.font = `${scaledFontSize}px Arial`;
 
     const labelWidthPx = 96 * dpr;
-    let numXLabels = Math.floor(w / labelWidthPx);
-    if (numXLabels < 1) numXLabels = 1;
-    let step = Math.ceil(this.visibleSamples / numXLabels);
-    if (step < 1) step = 1;
+    const numXLabels = Math.floor(w / labelWidthPx);
+    const step = Math.ceil(this.visibleSamples / numXLabels);
 
     for (let i = startSample; i <= endSample; i++) {
       const x = padding + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
@@ -439,13 +464,22 @@ export class PlotScreen extends LitElement {
     // Compute statistics for each variable for the visible window
     const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
     // Clamp visibleSamples to maxSamples if needed
-    let visibleSamples = Math.min(this.visibleSamples, maxSamples > 0 ? maxSamples : this.visibleSamples);
+    // Always enforce a minimum visibleSamples
+    let visibleSamples = Math.max(PlotScreen.MIN_VISIBLE_SAMPLES, Math.min(this.visibleSamples, maxSamples > 0 ? maxSamples : this.visibleSamples));
     if (visibleSamples !== this.visibleSamples) {
       this.visibleSamples = visibleSamples;
     }
     const startSample = Math.max(0, Math.floor(this.scrollOffset - visibleSamples / 2));
     const endSample = Math.min(Math.ceil(this.scrollOffset + visibleSamples / 2), maxSamples - 1);
-    const stats: Array<{ key: string; min: number | string; max: number | string; current: number | string }> = this.stats;
+    // Only show stats for variables present in variableConfig
+    const filteredStats = this.stats.filter(stat => this.variableConfig.hasOwnProperty(stat.key));
+    // Helper to get visablename if present
+    const getDisplayName = (key: string) => {
+      if (this.variableConfig && this.variableConfig[key] && this.variableConfig[key].visablename) {
+        return this.variableConfig[key].visablename;
+      }
+      return key;
+    };
     return html`
       <div style="display: flex; flex-direction: column; gap: 1.2rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1.2rem 1.2rem 1.8rem 1.2rem; background: #232323;">
         <!-- Statistics Table -->
@@ -460,9 +494,9 @@ export class PlotScreen extends LitElement {
               </tr>
             </thead>
             <tbody>
-              ${stats.map(stat => html`
+              ${filteredStats.map(stat => html`
                 <tr>
-                  <td style="padding: 0.3em 0.7em; color: ${this.getDataColor(stat.key)}; font-weight: 600;">${stat.key}</td>
+                  <td style="padding: 0.3em 0.7em; color: ${this.getDataColor(stat.key)}; font-weight: 600;">${getDisplayName(stat.key)}</td>
                   <td style="padding: 0.3em 0.7em; text-align: right;">${stat.min}</td>
                   <td style="padding: 0.3em 0.7em; text-align: right;">${stat.max}</td>
                   <td style="padding: 0.3em 0.7em; text-align: right;">${stat.current}</td>
@@ -478,7 +512,7 @@ export class PlotScreen extends LitElement {
           <label>Zoom</label>
           <input
             type="range"
-            min="10"
+            min="10 "
             max="${Math.max(10, maxSamples)}"
             .value="${String(visibleSamples)}"
             @input=${this.handleVisibleSamplesChange}
@@ -488,8 +522,8 @@ export class PlotScreen extends LitElement {
             <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {
               this.autoScaleY = (e.target as HTMLInputElement).checked;
               if (this.autoScaleY) {
-                this.yMin = null;
-                this.yMax = null;
+                this.yMin = 0;
+                this.yMax = 100;
               }
               this.requestUpdate();
             }} />

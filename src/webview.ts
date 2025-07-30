@@ -5,7 +5,6 @@ import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
 import "./components/plot_screen";
-import "./components/variables_view_";
 
 interface VSCodeApi {
 	postMessage(data: ProtocolRequests): void;
@@ -41,8 +40,8 @@ class SerialPlotterApp extends LitElement {
 	@property()
 	samplesExceeded = false;
 
-	// Variable config: { name: { color: string } }
-	private variableConfig: Record<string, { color: string }> = {};
+	@state()
+	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
 
   private colorPalette = [
@@ -54,13 +53,13 @@ class SerialPlotterApp extends LitElement {
 	"#9e6ffe", // purple
 	"#cc6633", // brown
 	"#f8f8f2", // white
-	"#75715e", // comment gray
+	// "#75715e", // comment gray
 	"#ae81ff", // violet
 	"#f4bf75", // gold
 	"#cfcfc2", // light gray
-	"#272822", // background dark
-	"#1e0010", // dark purple
-	"#465457", // blue gray
+	// "#272822", // background dark
+	// "#1e0010", // dark purple
+	// "#465457", // blue gray
 	"#b6e354"  // lime
   ];
 
@@ -68,6 +67,8 @@ class SerialPlotterApp extends LitElement {
 	// Listen for a custom event from sidebar-view
 	const sidebar = this.renderRoot.querySelector('sidebar-view');
 	if (sidebar) {
+		console.log("Sidebar found, adding event listener");
+		
 	  sidebar.addEventListener('variable-config-changed', (e: any) => {
 		this.variableConfig = e.detail;
 		// Forward to plot-screen
@@ -98,39 +99,39 @@ class SerialPlotterApp extends LitElement {
 		this.load();
 	}
 
-	load() {
-		// Always add a fake port option
-		const callback = (ev: { data: ProtocolResponse }) => {
-			const message = ev.data;
-			if (message.type == "ports-response") {
-				const previouslySelected = this.selected;
-				this.ports = [
-					// ...message.ports,
-					// remove ttyS from message.ports
-					...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
-					{ path: '/dev/fake_serial', manufacturer: 'Simulated' }
-				];
-				if (previouslySelected) {
-					const matchingPort = this.ports.find((p) => p.path === previouslySelected);
-					if (matchingPort) {
-						this.selected = matchingPort.path;
-					}
-				}
-				if (!this.selected) this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
-			}
-			if (message.type == "error") {
-				if (this.running) {
-					this.handleStartStop();
-				}
-				this.error = "Could not open port or device disconnected";
-			}
-			if (message.type == "data") {
-				this.handleSerialData(message.text);
-			}
-		};
-		window.addEventListener("message", callback);
-		vscode.postMessage({ type: "ports" });
-	}
+	   private _messageCallback?: (ev: { data: ProtocolResponse }) => void;
+
+	   load() {
+			   // Always add a fake port option
+			   this._messageCallback = (ev: { data: ProtocolResponse }) => {
+					   const message = ev.data;
+					   if (message.type == "ports-response") {
+							   const previouslySelected = this.selected;
+							   this.ports = [
+									   ...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
+									   { path: '/dev/fake_serial', manufacturer: 'Simulated' }
+							   ];
+							   if (previouslySelected) {
+									   const matchingPort = this.ports.find((p) => p.path === previouslySelected);
+									   if (matchingPort) {
+											   this.selected = matchingPort.path;
+									   }
+							   }
+							   if (!this.selected) this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
+					   }
+					   if (message.type == "error") {
+							   if (this.running) {
+									   this.handleStartStop();
+							   }
+							   this.error = "Could not open port or device disconnected";
+					   }
+					   if (message.type == "data") {
+							this.handleSerialData(message.text);
+					   }
+			   };
+			   window.addEventListener("message", this._messageCallback);
+			   vscode.postMessage({ type: "ports" });
+	   }
 
 	handleFakeData() {
 		this.error = "";
@@ -150,7 +151,7 @@ class SerialPlotterApp extends LitElement {
 				const now = new Date();
 				const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
 				const header = `[${ts}] header   sin1:'${fakeColors[0]}' sin2:'${fakeColors[1]}' sin3:'${fakeColors[2]}'`;
-				this.processData(header, true);
+				this.processData(header);
 			}
 			const now = new Date();
 			const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
@@ -158,7 +159,7 @@ class SerialPlotterApp extends LitElement {
 			const s2 = Math.sin(t + Math.PI / 2).toFixed(4);
 			const s3 = Math.sin(t + Math.PI).toFixed(4);
 			const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
-			this.processData(line, false);
+			this.processData(line);
 			t += dt;
 			if (!this.stopped && this.running) setTimeout(sendFakeData, 30);
 		};
@@ -180,12 +181,16 @@ class SerialPlotterApp extends LitElement {
 		this.running = !this.running;
 		this.stopped = !this.running;
 		if (this.running) {
-			this.lineBuffer = ["Connecting ..."];
+			this.lineBuffer = [];
 			this.variableMap = new Map();
+			// Add message event listener if not present
+			if (this._messageCallback) {
+					window.addEventListener("message", this._messageCallback);
+			}
 			if (this.selected === '/dev/fake_serial') {
-				this.handleFakeData();
+					this.handleFakeData();
 			} else {
-				this.startSerial();
+					this.startSerial();
 			}
 		} else {
 			this.stopSerial();
@@ -193,15 +198,6 @@ class SerialPlotterApp extends LitElement {
 	}
 
 	startSerial() {
-		window.addEventListener("message", (ev: { data: ProtocolResponse }) => {
-			const message = ev.data;
-			if (message.type == "error") {
-				// FIXME
-			}
-			if (message.type == "data") {
-				this.handleSerialData(message.text);
-			}
-		});
 		const baudRate = this.getBaudRate();
 		const request: StartMonitorPortRequest = {
 			type: "start-monitor",
@@ -211,13 +207,26 @@ class SerialPlotterApp extends LitElement {
 		vscode.postMessage(request);
 	}
 
-	stopSerial() {
-		const request: StopMonitorPortRequest = {
-			type: "stop-monitor"
-		};
-		vscode.postMessage(request);
-		this.stopped = true;
-	}
+   stopSerial() {
+			const request: StopMonitorPortRequest = {
+					type: "stop-monitor"
+			};
+			vscode.postMessage(request);
+			// Remove all 'message' event listeners (defensive, in case of duplicates)
+			// Remove the known callback
+			if (this._messageCallback) {
+				window.removeEventListener("message", this._messageCallback);
+			}
+			// Defensive: remove any other 'message' listeners that might have been added
+			// (This is a workaround for possible duplicates; in a real app, track all added callbacks)
+			const listeners = getEventListeners ? getEventListeners(window).message : undefined; // todo fix bug
+			if (listeners) {
+				for (const l of listeners) {
+					window.removeEventListener("message", l.listener);
+				}
+			}
+			this.stopped = true;
+   }
 
 	getBaudRate(): number {
 		const baudSelect = this.querySelector<HTMLInputElement>("#baud");
@@ -225,70 +234,131 @@ class SerialPlotterApp extends LitElement {
 	}
 
 	private handleSerialData(text: string) {
-		this.processData(text, false);
+		this.processData(text);
 	}
 
-	private processData(data: string, isHeaderLine = false) {
+	private processData(data: string) {
 		if (this.stopped) return;
+
 		const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
 		// Always show header in the raw text area
-		if (isHeaderLine) {
-			this.lineBuffer.push(data);
-		} else {
-			this.lineBuffer.push(...lines);
-		}
-		this.lineBuffer = [...this.lineBuffer];
+
+		this.lineBuffer.push(...lines);
+
+		// this.lineBuffer = [...this.lineBuffer];
 		// Live update the raw-data-view if present
 		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
-		if (rawDataView && typeof rawDataView.addLine === 'function') {
-			if (isHeaderLine) {
-				rawDataView.addLine([data]);
-			} else {
-				rawDataView.addLine(lines);
-			}
+		if (rawDataView) {
+			rawDataView.lineBuffer = this.lineBuffer;		
+			rawDataView.render();
 		}
+		const sidebar = document.querySelector('sidebar-view') as any;
+		if (sidebar) {
+			this.variableConfig = sidebar.getVariableConfig();
+			this.variableOrder = Object.keys(this.variableConfig);
+		}
+
 		lines.forEach((line) => {
 			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
+			line = line.replace(/[\r\n]+/g, ""); //remove new lines \r \n
 			// Always check for header in the line (case-insensitive, anywhere in the line)
 			const headerMatch = line.match(/header\b/i);
 			if (headerMatch) {
 				this.parseHeaderLine(line);
+				console.log("FOUND header this is now config", this.variableConfig);
+				
 				this.variableMap = new Map();
+				const sidebar = document.querySelector('sidebar-view') as any;
+				if (sidebar) {
+					sidebar.setVariableConfig(this.variableConfig);
+					sidebar.render();
+				}
+
+				const plotScreen = document.querySelector("plot-screen") as any;
+				if (plotScreen) {
+					plotScreen.setVariableConfig(sidebar.getVariableConfig());
+					plotScreen.renderData();
+				}
 				return;
 			}
 			// No header: update variables dynamically
 			const parts = line.split(/[ \t,;]+/).filter(Boolean);
 			// Only allow adding new variables if variableConfig has fewer than parts.length
 			const maxVars = Object.keys(this.variableConfig).length;
+			let skip = false;
+			let name = "";
+			let variables_updated = false;
 			parts.forEach((val: string, idx: number) => {
-				let name = this.variableOrder[idx] || `line${idx + 1}`;
-				if (this.autoVariableUpdate) {
+				// remove { and } from val 
+				val = val.replace(/[{}]/g, '');
+				
+				if (val.includes(':')) {
+					name = val.split(':')[0];
+					// get next color from colorPalette
+					let color = this.colorPalette[this.variableOrder.length % this.colorPalette.length]; // hacks :)
+					if (this.autoVariableUpdate && !this.variableConfig[name]) {
+						this.variableConfig[name] = { color, visablename: name };
+						this.variableOrder.push(name);
+						variables_updated = true;
+					}
+					skip = true;
+					return
+				}
+				
+				if (!skip && this.autoVariableUpdate) {
+					name = this.variableOrder[idx] || `line${idx + 1}`;
 					const color = this.colorPalette[idx % this.colorPalette.length];
 					if (maxVars < (idx + 1)) {
 						name = 'line' + (idx + 1);
 					}
 					if (!this.variableConfig[name]) {
-						this.variableConfig[name] = { color };
+						this.variableConfig[name] = { color, visablename: name };
 						this.variableOrder.push(name);
+						variables_updated = true;
 					}
 				}
-				// Add data to the variable
-				let arr = this.variableMap.get(name) ?? [];
-				const numVal = parseFloat(val);
-				arr.push(!isNaN(numVal) ? numVal : 0);
-				if (arr.length > 1000000) {
-					arr = arr.slice(-1000000);
-					this.samplesExceeded = true;
-				}
-				this.variableMap.set(name, arr);
-			});
-		});
+					// name = this.variableOrder[idx] || `line${idx + 1}`;
+					// Add data to the variable
+					let arr = this.variableMap.get(name) ?? [];
+					const numVal = parseFloat(val);
+					arr.push(!isNaN(numVal) ? numVal : 0);
+					if (arr.length > 100000000) {
+						arr = arr.slice(-100000000);
+						this.samplesExceeded = true;
+					}
+					this.variableMap.set(name, arr);
 
-		const plotScreen = document.querySelector("plot-screen") as any;
+			});
+
+
+			const sidebar = document.querySelector('sidebar-view') as any;
+			if (sidebar && variables_updated) {
+				// sidebar.setVariableConfig(this.variableConfig);
+				sidebar.setVariableMap(this.variableMap);
+				sidebar.render();
+			}
+
+			const plotScreen = document.querySelector("plot-screen") as any;
 			if (plotScreen) {
 				const sidebar = document.querySelector('sidebar-view') as any;
+				sidebar.setVariableConfig(this.variableConfig);
+				sidebar.setVariableMap(this.variableMap);
+				sidebar.render();
+
 				plotScreen.setVariableConfig(sidebar.getVariableConfig());
+				plotScreen.renderData();
+
 			}
+
+
+
+
+
+
+
+
+			
+		});
 	}
 
 	private parseHeaderLine(line: string) {
@@ -308,7 +378,7 @@ class SerialPlotterApp extends LitElement {
 				color = this.colorPalette[colorIdx % this.colorPalette.length];
 				colorIdx++;
 			}
-			this.variableConfig[name] = { color };
+			this.variableConfig[name] = { color, visablename: name };
 			this.variableOrder.push(name);
 		}
 	}
@@ -320,7 +390,54 @@ class SerialPlotterApp extends LitElement {
 	private handleAutoVariableUpdateToggle() {
 		this.autoVariableUpdate = !this.autoVariableUpdate;
 	}
-
+	private downloadCSV() {
+		
+		// Convert lineBuffer to CSV string
+		if (!this.lineBuffer || this.lineBuffer.length === 0) return;
+		// Remove any ANSI color codes and join lines
+		const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+		// Generate filename
+		const now = new Date();
+		const yyyy = now.getFullYear();
+		const mm = String(now.getMonth() + 1).padStart(2, '0');
+		const dd = String(now.getDate()).padStart(2, '0');
+		const filename = `${yyyy}-${mm}-${dd}-muino-data_dump.csv`;
+		// Create blob and trigger download
+		const blob = new Blob([csv], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		console.log(this.lineBuffer)
+		document.body.appendChild(a);
+		a.click();
+		setTimeout(() => {
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+		this.showToast(`CSV downloaded: ${filename}`);
+		}, 100);
+	}
+private showToast(message: string) {
+    let toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.position = 'fixed';
+    toast.style.top = '24px';
+    toast.style.right = '32px';
+    toast.style.background = '#232323ee';
+    toast.style.color = '#fff';
+    toast.style.padding = '0.8em 1.6em';
+    toast.style.borderRadius = '8px';
+    toast.style.fontSize = '1.1em';
+    toast.style.boxShadow = '0 2px 12px #0008';
+    toast.style.zIndex = '9999';
+    toast.style.transition = 'opacity 0.3s';
+    toast.style.opacity = '1';
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => document.body.removeChild(toast), 300);
+    }, 2000);
+}
 	render() {
 		return html`
 		 <style>
@@ -456,6 +573,13 @@ class SerialPlotterApp extends LitElement {
 			   </div>
 			</div>
 			<div style="display: flex; align-items: center; gap: 0.5rem;">
+			   <button class="toggle-btn" @click="${this.downloadCSV}" title="Download CSV" style="background: none; border: none; padding: 0; margin-right: 0.5em; cursor: pointer;">
+				 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				   <path d="M12 3v14m0 0l-4-4m4 4l4-4"/>
+				   <rect x="4" y="17" width="16" height="4" rx="2" fill="#aaa" opacity="0.2"/>
+				 </svg>
+			   </button>
+
 			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="Switch view">
 				  ${this.screen === 'raw'
 				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="8 12 12 16 16 12" stroke="#aaa" fill="none"/></svg> Raw`
@@ -482,7 +606,7 @@ class SerialPlotterApp extends LitElement {
 					   ></raw-data-view>`
 			   : html`<plot-screen id="plotscreen"
 					   .data=${this.variableMap}
-					   .variableConfig=${this.variableConfig}
+						.variableConfig=${this.variableConfig}
 					   ></plot-screen>`}
 			</div>
 		 </div>
