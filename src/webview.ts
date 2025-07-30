@@ -265,7 +265,7 @@ class SerialPlotterApp extends LitElement {
 			this.variableConfig = sidebar.getVariableConfig();
 			this.variableOrder = Object.keys(this.variableConfig);
 		}
-
+	let variables_updated = false;
 		lines.forEach((line) => {
 			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
 			line = line.replace(/[\r\n]+/g, ""); //remove new lines \r \n
@@ -295,7 +295,7 @@ class SerialPlotterApp extends LitElement {
 			const maxVars = Object.keys(this.variableConfig).length;
 			let skip = false;
 			let name = "";
-			let variables_updated = false;
+			
 			parts.forEach((val: string, idx: number) => {
 				// remove { and } from val 
 				val = val.replace(/[{}]/g, '');
@@ -337,9 +337,10 @@ class SerialPlotterApp extends LitElement {
 					this.variableMap.set(name, arr);
 
 			});
+		
+		});
 
 
-			const sidebar = document.querySelector('sidebar-view') as any;
 			if (sidebar && variables_updated) {
 				// sidebar.setVariableConfig(this.variableConfig);
 				sidebar.setVariableMap(this.variableMap);
@@ -348,7 +349,6 @@ class SerialPlotterApp extends LitElement {
 
 			const plotScreen = document.querySelector("plot-screen") as any;
 			if (plotScreen) {
-				const sidebar = document.querySelector('sidebar-view') as any;
 				sidebar.setVariableConfig(this.variableConfig);
 				sidebar.setVariableMap(this.variableMap);
 				sidebar.render();
@@ -357,16 +357,6 @@ class SerialPlotterApp extends LitElement {
 				plotScreen.renderData();
 
 			}
-
-
-
-
-
-
-
-
-			
-		});
 	}
 
 	private parseHeaderLine(line: string) {

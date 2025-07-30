@@ -22,7 +22,7 @@ export class PlotScreen extends LitElement {
     this.data.set(variable, graphData);
 
     // Ensure reactivity by reassigning the data property
-    this.data = new Map(this.data);
+    // this.data = new Map(this.data);
 
     // Maintain color mapping for the variable
     if (!this.dataColors.has(variable)) {
