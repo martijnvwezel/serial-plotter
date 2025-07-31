@@ -5,6 +5,7 @@ import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
 import "./components/plot_screen";
+import "./components/plot_screen_fast";
 
 interface VSCodeApi {
 	postMessage(data: ProtocolRequests): void;
@@ -30,8 +31,10 @@ class SerialPlotterApp extends LitElement {
 	@state()
 	error?: string;
 
-	@state()
-	private screen: 'raw' | 'plot' = 'plot';
+  @state()
+  private screen: 'raw' | 'plot' = 'plot';
+  @state()
+  private fastPlot: boolean = true;
 
 	@state()
 	autoVariableUpdate: boolean = true;
@@ -86,6 +89,11 @@ class SerialPlotterApp extends LitElement {
 			  plot.updateLineColors(key, arr[arr.length - 1]);
 			}
 		  }
+		}
+		// Forward to plot-screen-fast
+		const plotFast = this.renderRoot.querySelector('plot-screen-fast') as any;
+		if (plotFast && typeof plotFast.setVariableConfig === 'function') {
+		  plotFast.setVariableConfig(this.variableConfig);
 		}
 	  });
 	}
@@ -275,7 +283,7 @@ class SerialPlotterApp extends LitElement {
 				this.parseHeaderLine(line);
 				console.log("FOUND header this is now config", this.variableConfig);
 				
-				this.variableMap = new Map();
+				// this.variableMap = new Map();
 				const sidebar = document.querySelector('sidebar-view') as any;
 				if (sidebar) {
 					sidebar.setVariableConfig(this.variableConfig);
@@ -287,11 +295,16 @@ class SerialPlotterApp extends LitElement {
 					plotScreen.setVariableConfig(sidebar.getVariableConfig());
 					plotScreen.renderData();
 				}
+				const plotScreenFast = document.querySelector("plot-screen-fast") as any;
+				if (plotScreenFast) {
+					plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
+					plotScreenFast.renderData();
+				}
 				return;
 			}
 			// No header: update variables dynamically
 			const parts = line.split(/[ \t,;]+/).filter(Boolean);
-			// Only allow adding new variables if variableConfig has fewer than parts.length
+			// Only allow addin g new variables if variableConfig has fewer than parts.length
 			const maxVars = Object.keys(this.variableConfig).length;
 			let skip = false;
 			let name = "";
@@ -324,17 +337,17 @@ class SerialPlotterApp extends LitElement {
 						this.variableOrder.push(name);
 						variables_updated = true;
 					}
+				} 
+				// name = this.variableOrder[idx] || `line${idx + 1}`;
+				// Add data to the variable
+				let arr = this.variableMap.get(name) ?? [];
+				const numVal = parseFloat(val);
+				arr.push(!isNaN(numVal) ? numVal : 0);
+				if (arr.length > 100000000) {
+					arr = arr.slice(-100000000);
+					this.samplesExceeded = true;
 				}
-					// name = this.variableOrder[idx] || `line${idx + 1}`;
-					// Add data to the variable
-					let arr = this.variableMap.get(name) ?? [];
-					const numVal = parseFloat(val);
-					arr.push(!isNaN(numVal) ? numVal : 0);
-					if (arr.length > 100000000) {
-						arr = arr.slice(-100000000);
-						this.samplesExceeded = true;
-					}
-					this.variableMap.set(name, arr);
+				this.variableMap.set(name, arr);
 
 			});
 		
@@ -355,7 +368,11 @@ class SerialPlotterApp extends LitElement {
 
 				plotScreen.setVariableConfig(sidebar.getVariableConfig());
 				plotScreen.renderData();
-
+			}
+			const plotScreenFast = document.querySelector("plot-screen-fast") as any;
+			if (plotScreenFast) {
+				plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
+				plotScreenFast.renderData();
 			}
 	}
 
@@ -364,21 +381,47 @@ class SerialPlotterApp extends LitElement {
 		const headerMatch = line_low.match(/^header\s+(.*)$/i);
 		if (!headerMatch) return;
 		const rest = headerMatch[1];
-		const regex = /(\w+)(?::'([^']+)')?/g;
+		// Accepts: headerA:'green', headerA:green, headerA:"#4d5e4d", headerA:rgb(0,255,0), headerA:rgba(1,2,3,0.5), etc.
+		// Handles quoted, unquoted, hex, named, and rgb/rgba with or without spaces
+		const regex = /(\w+):\s*(?:'([^']+)'|"([^"]+)"|(#\w+)|((?:rgba?|RGBA?)\s*\([^)]*\))|([a-zA-Z]+))/g;
 		let match;
 		this.variableConfig = {};
 		this.variableOrder = [];
 		let colorIdx = 0;
-		while ((match = regex.exec(rest)) !== null) {
-			const name = match[1];
-			let color = match[2];
-			if (!color) {
-				color = this.colorPalette[colorIdx % this.colorPalette.length];
-				colorIdx++;
-			}
-			this.variableConfig[name] = { color, visablename: name };
-			this.variableOrder.push(name);
-		}
+	   while ((match = regex.exec(rest)) !== null) {
+		   const name = match[1];
+		   // Prefer single-quoted, then double-quoted, then hex, then rgb/rgba, then named
+		   let color =
+			   match[2] || // single-quoted
+			   match[3] || // double-quoted
+			   match[4] || // #hex
+			   match[5] || // rgb/rgba
+			   match[6] || // named
+			   this.colorPalette[colorIdx % this.colorPalette.length];
+
+		   if (color) {
+			   color = color.trim();
+			   // Normalize rgb/rgba: remove spaces, fix double commas, clamp to 4 components
+			   const rgbRegex = /^rgba?\s*\(([^)]+)\)$/i;
+			   const rgbMatch = color.match(rgbRegex);
+			   if (rgbMatch) {
+				   let comps = rgbMatch[1].split(',').map(s => s.trim()).filter(s => s !== "");
+				   comps = comps.slice(0, 4);
+				   if (comps.length === 3) {
+					   color = `rgb(${comps.join(",")})`;
+				   } else if (comps.length === 4) {
+					   color = `rgba(${comps.join(",")})`;
+				   } else {
+					   color = this.colorPalette[colorIdx % this.colorPalette.length];
+				   }
+			   }
+		   } else {
+			   color = this.colorPalette[colorIdx % this.colorPalette.length];
+		   }
+		   this.variableConfig[name] = { color, visablename: name };
+		   this.variableOrder.push(name);
+		   colorIdx++;
+	   }
 	}
 
 	private handleScreenToggle() {
@@ -587,18 +630,26 @@ private showToast(message: string) {
 			<div class="sidebar">
 				<sidebar-view id="sidebar" .variableMap=${this.variableMap} .variableConfig=${this.variableConfig}></sidebar-view>
 			</div>
-			<div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
-		   ${this.screen === 'raw'
-			   ? html`<raw-data-view id="rawdataview"
-					   .autoScrollEnabled=${this.autoScrollEnabled}
-					   .hideData=${this.hideData}
-					   .lineBuffer=${this.lineBuffer}
-					   ></raw-data-view>`
+		   <div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
+		  <div style="margin-bottom: 0.5em;">
+			<label><input type="checkbox" .checked=${this.fastPlot} @change=${(e: Event) => { this.fastPlot = (e.target as HTMLInputElement).checked; }}> Fast Plot (WebGL)</label>
+		  </div>
+		  ${this.screen === 'raw'
+			 ? html`<raw-data-view id="rawdataview"
+					 .autoScrollEnabled=${this.autoScrollEnabled}
+					 .hideData=${this.hideData}
+					 .lineBuffer=${this.lineBuffer}
+					 ></raw-data-view>`
+			 : this.fastPlot
+			   ? html`<plot-screen-fast id="plotscreen"
+					 .data=${this.variableMap}
+					 .variableConfig=${this.variableConfig}
+					 ></plot-screen-fast>`
 			   : html`<plot-screen id="plotscreen"
-					   .data=${this.variableMap}
-						.variableConfig=${this.variableConfig}
-					   ></plot-screen>`}
-			</div>
+					 .data=${this.variableMap}
+					 .variableConfig=${this.variableConfig}
+					 ></plot-screen>`}
+		   </div>
 		 </div>
 	  `;
 	}
