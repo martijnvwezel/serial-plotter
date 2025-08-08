@@ -365,7 +365,7 @@ export class PlotScreen extends LitElement {
     if (this.autoScaleY) {
       this.yMin = min;
       this.yMax = max;
-    } else if (this.yMin === null || this.yMax === null) {
+    } else if (this.yMin === null || this.yMax === null) {  
       // If manual mode but yMin/yMax not set, initialize to data range
       this.yMin = min;
       this.yMax = max;
