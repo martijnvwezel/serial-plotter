@@ -77,19 +77,30 @@ class SerialPlotterApp extends LitElement {
 		console.log("Sidebar found, adding event listener");
 		
 	  sidebar.addEventListener('variable-config-changed', (e: any) => {
+		
 		this.variableConfig = e.detail;
+		// // check why needed extra cons
+		// const sidebar_ = document.querySelector('sidebar-view') as any;
+		// if (sidebar_ && sidebar_.setVariableConfig === 'function') {
+		// 	sidebar_.setVariableConfig(this.variableConfig);
+		// }
+
 		// Forward to plot-screen
 		const plot = this.renderRoot.querySelector('plot-screen') as any;
 		if (plot && typeof plot.setVariableConfig === 'function') {
-		  plot.setVariableConfig(this.variableConfig);
-		  // Also update line colors for each variable
-		  for (const key of Object.keys(this.variableConfig)) {
-			const arr = this.variableMap.get(key);
-			if (arr && arr.length > 0 && typeof plot.updateLineColors === 'function') {
-			  plot.updateLineColors(key, arr[arr.length - 1]);
+		  	plot.setVariableConfig(this.variableConfig);
+		
+			// Also update line colors for each variable
+			for (const key of Object.keys(this.variableConfig)) {
+				const arr = this.variableMap.get(key);
+				if (arr && arr.length > 0 && typeof plot.updateLineColors === 'function') {
+					plot.updateLineColors(key, arr[arr.length - 1]);
+				}
 			}
-		  }
-		}
+			plot.renderData();
+			plot.render();
+		}		
+
 		// Forward to plot-screen-fast
 		const plotFast = this.renderRoot.querySelector('plot-screen-fast') as any;
 		if (plotFast && typeof plotFast.setVariableConfig === 'function') {
@@ -273,7 +284,7 @@ class SerialPlotterApp extends LitElement {
 			this.variableConfig = sidebar.getVariableConfig();
 			this.variableOrder = Object.keys(this.variableConfig);
 		}
-	let variables_updated = false;
+		let variables_updated = false;
 		lines.forEach((line) => {
 			line = line.replace(/^\[[^\]]+\]\s*/, ""); // Remove timestamp at the start
 			line = line.replace(/[\r\n]+/g, ""); //remove new lines \r \n
@@ -283,7 +294,7 @@ class SerialPlotterApp extends LitElement {
 				this.parseHeaderLine(line);
 				console.log("FOUND header this is now config", this.variableConfig);
 				
-				// this.variableMap = new Map();
+				this.variableMap = new Map();
 				const sidebar = document.querySelector('sidebar-view') as any;
 				if (sidebar) {
 					sidebar.setVariableConfig(this.variableConfig);
@@ -310,14 +321,14 @@ class SerialPlotterApp extends LitElement {
 			let name = "";
 			
 			parts.forEach((val: string, idx: number) => {
-				// remove { and } from val 
-				val = val.replace(/[{}]/g, '');
+				val = val.replace(/[{}]/g, ''); // remove { and } from val
+				
+				
 				
 				if (val.includes(':')) {
-					name = val.split(':')[0];
-					// get next color from colorPalette
-					let color = this.colorPalette[this.variableOrder.length % this.colorPalette.length]; // hacks :)
+					name = val.split(':')[0];					
 					if (this.autoVariableUpdate && !this.variableConfig[name]) {
+						const color = this.colorPalette[idx % this.colorPalette.length];
 						this.variableConfig[name] = { color, visablename: name };
 						this.variableOrder.push(name);
 						variables_updated = true;
@@ -326,18 +337,20 @@ class SerialPlotterApp extends LitElement {
 					return
 				}
 				
-				if (!skip && this.autoVariableUpdate) {
-					name = this.variableOrder[idx] || `line${idx + 1}`;
-					const color = this.colorPalette[idx % this.colorPalette.length];
+							
 					if (maxVars < (idx + 1)) {
 						name = 'line' + (idx + 1);
 					}
-					if (!this.variableConfig[name]) {
+					else{
+						name = this.variableOrder[idx]
+					}
+					if (this.autoVariableUpdate && !this.variableConfig[name]) {
+						const color = this.colorPalette[idx % this.colorPalette.length];
 						this.variableConfig[name] = { color, visablename: name };
 						this.variableOrder.push(name);
 						variables_updated = true;
 					}
-				} 
+
 				// name = this.variableOrder[idx] || `line${idx + 1}`;
 				// Add data to the variable
 				let arr = this.variableMap.get(name) ?? [];
@@ -355,7 +368,7 @@ class SerialPlotterApp extends LitElement {
 
 
 			if (sidebar && variables_updated) {
-				// sidebar.setVariableConfig(this.variableConfig);
+				sidebar.setVariableConfig(this.variableConfig);
 				sidebar.setVariableMap(this.variableMap);
 				sidebar.render();
 			}
@@ -363,7 +376,7 @@ class SerialPlotterApp extends LitElement {
 			const plotScreen = document.querySelector("plot-screen") as any;
 			if (plotScreen) {
 				sidebar.setVariableConfig(this.variableConfig);
-				sidebar.setVariableMap(this.variableMap);
+				sidebar.updated(this.variableMap);
 				sidebar.render();
 
 				plotScreen.setVariableConfig(sidebar.getVariableConfig());
@@ -646,7 +659,7 @@ private showToast(message: string) {
 					 .variableConfig=${this.variableConfig}
 					 ></plot-screen-fast>`
 			   : html`<plot-screen id="plotscreen"
-					 .data=${this.variableMap}
+					 .variableMap=${this.variableMap}
 					 .variableConfig=${this.variableConfig}
 					 ></plot-screen>`}
 		   </div>

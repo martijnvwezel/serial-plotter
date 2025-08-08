@@ -9,42 +9,49 @@ export class PlotScreen extends LitElement {
   private renderTimer: number | null = null;
 
 
-  // Allow external updates to add a new line of data (like raw_data_view)
-  public addLine(variable: string, value: number) {
-    // Only add data if variable is present in variableConfig (i.e., not deleted)
-    if (!this.variableConfig.hasOwnProperty(variable)) {
-      // Variable is not in config, do not add data
-      return;
-    }
-    // Add or update the graph data for the variable
-    let graphData = this.data.get(variable) ?? [];
-    graphData.push(value);
-    this.data.set(variable, graphData);
+  // // Allow external updates to add a new line of data (like raw_data_view)
+  // public addLine(variable: string, value: number) {
+  //   // Only add data if variable is present in variableConfig (i.e., not deleted)
+  //   if (!this.variableConfig.hasOwnProperty(variable)) {
+  //     // Variable is not in config, do not add data
+  //     return;
+  //   }
+  //   // Add or update the graph data for the variable
+  //   let graphData = this.data.get(variable) ?? [];
+  //   graphData.push(value);
+  //   this.data.set(variable, graphData);
 
-    // Ensure reactivity by reassigning the data property
-    // this.data = new Map(this.data);
+  //   // Ensure reactivity by reassigning the data property
+  //   // this.data = new Map(this.data);
 
-    // Maintain color mapping for the variable
-    if (!this.dataColors.has(variable)) {
-        this.getDataColor(variable);
-    }
+  //   // Maintain color mapping for the variable
+  //   if (!this.dataColors.has(variable)) {
+  //       this.getDataColor(variable);
+  //   }
 
-  }
+  // }
 
   // Renamed updateLine to updateLineColors for clarity
   public updateLineColors(variable: string, value: number) {
+    // console.log(`Updating line color for ${variable} with value ${value}`);
+    
     // Only add data if variable is present in variableConfig (i.e., not deleted)
     if (!this.variableConfig.hasOwnProperty(variable)) {
       // Variable is not in config, do not add data
+      // console.log(`Variable ${variable} not found in variableConfig, skipping update.`);
       return;
     }
     // Add or update the data for the variable
-    let arr = this.data.get(variable) ?? [];
+    let arr = this.variableMap.get(variable);
+    if (!arr) {
+      arr = [0]; // Initialize with default value 0
+    }
     arr.push(value);
-    this.data.set(variable, arr);
+    // console.log(`Updating line data for ${variable} with value ${value}` );
+    this.variableMap.set(variable, arr);
 
     // Ensure reactivity by reassigning the data property
-    this.data = new Map(this.data);
+    // this.variableMap = new Map(this.variableMap);
 
     // Maintain color mapping for the variable
     if (!this.dataColors.has(variable)) {
@@ -64,9 +71,9 @@ export class PlotScreen extends LitElement {
     
     this.variableConfig = config;
     // Remove data for variables that are no longer in config
-    for (const key of Array.from(this.data.keys())) {
+    for (const key of Array.from(this.variableMap.keys())) {
       if (!config.hasOwnProperty(key)) {
-        this.data.delete(key);
+        this.variableMap.delete(key);
       }
     }
     // Update dataColors map
@@ -81,7 +88,7 @@ export class PlotScreen extends LitElement {
   }
 
   @property({ type: Map })
-  data: Map<string, number[]> = new Map();
+  variableMap: Map<string, number[]> = new Map();
 
   @state()
   dataColors: Map<string, string> = new Map();
@@ -100,9 +107,9 @@ export class PlotScreen extends LitElement {
   @state()
   autoScaleY: boolean = true;
   @state()
-  yMin: number | null = null;
+  yMin: number | null = 0;
   @state()
-  yMax: number | null = null;
+  yMax: number | null = 10;
 
   private static readonly MIN_Y_HEIGHT = 1e-6;
 
@@ -161,8 +168,8 @@ export class PlotScreen extends LitElement {
 
     super.updated?.(changedProps);
     // Auto-enable all variables when data changes
-    if (changedProps.has('data')) {
-      const allVars = Array.from(this.data.keys());
+    if (changedProps.has('variableMap')) {
+      const allVars = Array.from(this.variableMap.keys());
       if (allVars.length > 0) {
         // If nothing selected, select all by default
         if (this.selectedVariables.size === 0) {
@@ -233,7 +240,7 @@ export class PlotScreen extends LitElement {
     this.canvas.addEventListener("mouseleave", this.handleMouseUp.bind(this));
     this.canvas.addEventListener("wheel", this.handleCanvasWheel.bind(this), { passive: false });
     if (this.selectedVariables.size === 0) {
-      for (const name of this.data.keys()) {
+      for (const name of this.variableMap.keys()) {
         this.selectedVariables.add(name);
       }
     }
@@ -297,7 +304,7 @@ export class PlotScreen extends LitElement {
   handleAutoScrollChange(e: Event) {
       const checkbox = e.target as HTMLInputElement;
       this.autoScroll = checkbox.checked;
-      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = Math.max(...Array.from(this.variableMap.values()).map((line) => line.length));
       this.scrollOffset = maxSamples - this.visibleSamples / 2;
   }
 
@@ -330,30 +337,41 @@ export class PlotScreen extends LitElement {
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
 
-    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    const maxSamples = Math.max(0, ...Array.from(this.variableMap.values()).map((line) => line.length));
     const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
     const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
 
     // --- Stats calculation for visible window ---
-    const newStats = Array.from(this.data.entries())
+    const newStats = Array.from(this.variableMap.entries())
       .map(([key, values]) => {
+        // print the length of key value
+        
         if (!values.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
         const visible = values.slice(startSample, endSample + 1).filter(v => typeof v === 'number' && !isNaN(v));
         if (!visible.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
         const minV = Math.min(...visible);
         const maxV = Math.max(...visible);
         const current = visible[visible.length - 1];
+        
         return { key, min: minV, max: maxV, current };
       });
     // Only update and requestUpdate if stats changed
     const statsChanged = JSON.stringify(this.stats) !== JSON.stringify(newStats);
-    if (statsChanged) {
-      this.stats = newStats;
+    if (statsChanged || true) {
+      
       this.requestUpdate();
+      // for (const [key, value] of newStats.entries()) {
+      //   if (!this.stats.hasOwnProperty(key)) {
+      //     console.log(`Stat for ${key}:`);
+      //     console.log(`  New: ${JSON.stringify(newStats[key])}`);
+      //     console.log(`  Old: ${JSON.stringify(value)}`);
+      //   }
+      // }
+      this.stats = newStats;
     }
 
     // --- Canvas drawing (unchanged) ---
-    for (const [name, line] of this.data.entries()) {
+    for (const [name, line] of this.variableMap.entries()) {
       if (!this.selectedVariables.has(name) || line.length < 2) continue;
       for (let i = startSample; i <= endSample; i++) {
         const value = line[i];
@@ -427,7 +445,7 @@ export class PlotScreen extends LitElement {
     }
     ctx.restore();
 
-    for (const [name, line] of this.data.entries()) {
+    for (const [name, line] of this.variableMap.entries()) {
       if (!this.selectedVariables.has(name) || line.length < 2) continue;
 
       ctx.strokeStyle = this.getDataColor(name);
@@ -458,15 +476,15 @@ export class PlotScreen extends LitElement {
 
   render() {
     // Compute statistics for each variable for the visible window
-    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    const maxSamples = Math.max(0, ...Array.from(this.variableMap.values()).map((line) => line.length));
     // Clamp visibleSamples to maxSamples if needed
     // Always enforce a minimum visibleSamples
     let visibleSamples = Math.max(PlotScreen.MIN_VISIBLE_SAMPLES, Math.min(this.visibleSamples, maxSamples > 0 ? maxSamples : this.visibleSamples));
     if (visibleSamples !== this.visibleSamples) {
       this.visibleSamples = visibleSamples;
     }
-    const startSample = Math.max(0, Math.floor(this.scrollOffset - visibleSamples / 2));
-    const endSample = Math.min(Math.ceil(this.scrollOffset + visibleSamples / 2), maxSamples - 1);
+    // const startSample = Math.max(0, Math.floor(this.scrollOffset - visibleSamples / 2));
+    // const endSample = Math.min(Math.ceil(this.scrollOffset + visibleSamples / 2), maxSamples - 1);
     // Only show stats for variables present in variableConfig
     const filteredStats = this.stats.filter(stat => this.variableConfig.hasOwnProperty(stat.key));
     // Helper to get visablename if present
