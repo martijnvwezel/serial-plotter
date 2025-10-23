@@ -1,78 +1,199 @@
-# Serial Plotter
-VS Code extension for plotting data received via a serial port, such as from an Arduino connected via USB. It pairs well with the VS Code PlatformIO extension.
+# Serial Plotter for VS Code
 
-## Data & Formatting
-The serial plotter displays numerical data received via the serial port. It expects the device to send data in a line-based format, with each line ending in `\r\n`. Lines meant for the plotter must start with `>`, followed by one or more `variable_name:value` pairs separated by commas, and ending with `\r\n`. Variable names can be any UTF-8 sequence except `:`. Values should be integers or decimal numbers using `.` as the decimal point. For example:
+A powerful real-time data visualization extension for VS Code that plots numerical data received via serial ports. Perfect for monitoring Arduino sensors, ESP32 data streams, and other microcontroller projects. Integrates seamlessly with PlatformIO and other embedded development workflows.
 
+## ✨ Key Features
+
+- **Real-time plotting** with high-performance rendering
+- **Multiple data format support** - automatic and manual parsing
+- **Interactive plot controls** - zoom, pan, auto-scroll
+- **Variable management** - customize colors, names, and visibility  
+- **Statistics display** - min, max, and current values
+- **Raw data monitoring** - view unprocessed serial output
+- **CSV export** - save your data for further analysis
+- **WebGL acceleration** - smooth plotting even with high data rates
+- **Fake data simulation** - test without hardware
+
+## 📸 Screenshots
+
+### Main Plot View with Statistics
+![Main Plot Interface](docs/main_plot.png)
+
+### Variable Management Sidebar  
+![Statistics View](docs/statistics.png)
+
+### Raw Data Monitoring
+![Raw Data View](docs/raw_data.png)
+
+## 🚀 Getting Started
+
+### Opening the Plotter
+1. Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) to open the command palette
+2. Type "Serial Plotter: Open pane" and select the command
+3. The plotter interface will open in a new VS Code panel
+
+### Basic Usage
+1. **Select your port** from the dropdown (click refresh if your device was connected after opening)
+2. **Choose the correct baud rate** to match your device configuration  
+3. **Click Start** to begin monitoring
+4. **Switch between Plot and Raw views** using the toggle button
+5. **Customize variables** in the sidebar (colors, names, visibility)
+
+## 📊 Data Formatting
+
+The Serial Plotter supports multiple data input formats to accommodate different use cases:
+
+### Format 1: Header + Tab/Space Separated Values
+Perfect for simple sensor readings:
+
+```cpp
+// Send a header line first (case-insensitive, optional colors)
+Serial.println("header temp:'red' humidity:'blue' pressure:'green'");
+
+// Then send data lines with tab or space separation  
+Serial.print("23.5\t65.2\t1013.25");
+Serial.println();
 ```
->pin0:0.0342,brightness:234,temp:25.7\r\n
->pin0:2.34,brightness:200\r\n
->pin0:10,brightness:12\r\n
+
+### Format 2: Named Variables with Colons
+Explicit variable naming:
+
+```cpp
+// Data with variable names
+Serial.println("temp:23.5 humidity:65.2 pressure:1013.25");
+// or 
+Serial.println("sensor1:123,sensor2:456,sensor3:789");
 ```
 
-The plotter ignores lines that don't start with `>`.
+### Format 3: Auto-detection Mode
+When "Auto Variable Update" is enabled, the plotter automatically creates variables for incoming numeric data:
 
-Upon receiving a valid line:
-1. It parses all `variable_name:value` pairs.
-2. The values are added to their corresponding variable's list.
-3. If a variable from a previous line isn't in the new one, its last value is appended to keep all variable lists synchronized.
+```cpp
+// Just send numbers - variables will be auto-created as line1, line2, etc.
+Serial.println("1.23 4.56 7.89");
+```
 
-This method maintains equal data lengths for each variable without needing timestamps.
+### Header Line Format Options
+Headers can specify variable colors using various formats:
 
-Example of device-side communication:
+```cpp
+// Different color specification methods:
+Serial.println("header var1:'#FF0000' var2:'blue' var3:'rgb(0,255,0)'");
+Serial.println("header temp:red humidity:blue");  
+Serial.println("header sensor:'rgba(255,0,0,0.8)'");
+```
+
+### Arduino Example Code
 
 ```cpp
 void setup() {
-  Serial.begin(112500);
+    Serial.begin(115200);
+    
+    // Optional: Send header with variable names and colors
+    Serial.println("header temperature:'#e74c3c' humidity:'#3498db' light:'#f39c12'");
 }
 
-float angle = 0;
 void loop() {
-  Serial.print(">");
-
-  Serial.print("var1:");
-  Serial.print(cos(angle));
-  Serial.print(",");
-
-  Serial.print("var2:");
-  Serial.print(cos(angle + PI / 2) * 0.1);
-  Serial.print(",");
-
-  Serial.print("var3:");
-  Serial.print(cos(angle + PI / 4) * 1.2 + 2);
-  Serial.println(); // Writes \r\n
-
-  Serial.println("This is totally ignored");
-  delay(100);
-
-  angle += PI / 10;
+    float temp = 20.0 + 5.0 * sin(millis() * 0.001);
+    float humidity = 50.0 + 10.0 * cos(millis() * 0.001);  
+    int light = 500 + 200 * sin(millis() * 0.002);
+    
+    // Send tab-separated values
+    Serial.print(temp); Serial.print("\t");
+    Serial.print(humidity); Serial.print("\t");  
+    Serial.print(light); Serial.println();
+    
+    delay(100);
 }
 ```
 
-The baud rate is set to `112500`. In `loop()`, a new line with `var1`, `var2`, and `var3` is emitted, using scaled sine waves as values. Another line, ignored by the plotter, is emitted afterward.
+## 🎛️ Interface Features
 
-## Opening the Plotter
-In VS Code, press `CTRL + SHIFT + P` (`CMD + SHIFT + P` on macOS) to open the command palette. Type `Serial Plotter: Open pane` and select the command. The pane will open.
+### Plot Controls
+- **Auto-scroll**: Automatically follow new data (toggle on/off)
+- **Zoom slider**: Adjust visible sample range (10 to 100k+ samples)  
+- **Manual panning**: Click and drag to explore historical data
+- **Y-axis controls**: Auto-scale or manual min/max values
+- **Mouse wheel**: Zoom in/out (Shift+wheel to pan vertically)
 
-## Selecting Port & Baud Rate
+### Variable Management
+- **Custom colors**: Click color picker to change line colors
+- **Display names**: Edit variable names for better readability
+- **Current values**: Live display of latest values for each variable
+- **Delete variables**: Remove unwanted data series
+- **Reset**: Clear all variables and start fresh
 
-![docs/pane-1.png](docs/pane-1.png)
+### View Modes
+- **Plot View**: Interactive graphs with statistics table
+- **Raw View**: Monitor unprocessed serial data with filtering options
+- **WebGL Mode**: High-performance rendering for demanding applications
 
-Choose your port from the dropdown list. If you connected your device after opening the pane, click the refresh button. Select the correct baud rate to match your device configuration.
+### Data Export
+- **CSV Download**: Export all collected data
+- **Automatic timestamps**: Data includes collection timestamps  
+- **Filtered export**: Hide data lines when exporting raw logs
 
-## Monitoring
-After selecting the port and baud rate, click `Start`. You may see output like this:
+## ⚙️ Advanced Configuration
 
-![docs/pane-2.png](docs/pane-2.png)
+### Baud Rate Support
+Compatible with all standard baud rates:
+- 9600, 19200, 38400, 57600, 115200 (most common)
+- Up to 921600 for high-speed applications
+- Custom rates supported by your hardware
 
-The serial plotter connects to the port and waits for incoming data. The `Raw` panel shows the last 1000 lines of raw serial data. Use the `Hide data lines` checkbox to toggle showing lines starting with `>`. The `Variables` pane displays all variables encountered, including their min, max, and current values.
+### Performance Options
+- **Fast Plot (WebGL)**: Enable for high data rates (>1000 samples/sec)
+- **Sample limits**: Automatic data truncation prevents memory issues
+- **Render throttling**: 30ms intervals (~30 FPS) for smooth performance
 
-A plot pane shows all variables from the first data line by default. Use checkboxes to show or hide variables. Uncheck `auto-scroll` to manually inspect the data. You can drag the plot left or right to explore the data further. Adjust the `zoom` slider to change the sample range (from 10 to 1000), that is, the number of samples visible in the plot. Use `Close` to close the plot.
+### Troubleshooting
+- **Port Access**: Only one application can use a serial port at a time
+- **Upload conflicts**: Stop monitoring before uploading new firmware
+- **Data format**: Check that your device sends properly formatted data
+- **Baud rate**: Ensure sender and receiver use matching baud rates
 
-You can add more plots with the `Add plot` button.
+## 🔧 Development Features
 
-Click `Stop` to stop monitoring. You can still review the data from the stopped session.
+### Fake Data Generator
+Test the plotter without hardware using the built-in simulator:
+1. Select `/dev/fake_serial` from the port dropdown
+2. Click Start to generate sine wave test data
+3. Perfect for development and demonstrations
 
-## Known Issues
-- A serial port can only be accessed by one process at a time. You cannot monitor a port and upload a program to the Arduino simultaneously. Ensure no other process is using the port if the plotter can't connect. Similarly, if you're having trouble uploading to the Arduino, make sure the serial plotter isn't monitoring the port.
-- If you create multiple plots with specific variable selections, they need to be recreated when starting a new session.
+### WSL Support
+Use with Windows Subsystem for Linux:
+
+```powershell
+# In Windows PowerShell (as Administrator)
+winget install dorssel.usbipd-win
+usbipd list
+usbipd bind --busid 1-13  # Replace with your device's bus ID
+usbipd attach --wsl --busid 1-13
+```
+
+## 📝 Tips & Best Practices
+
+1. **Start simple**: Begin with basic tab-separated values before using advanced features
+2. **Use headers**: Define variable names and colors for better visualization
+3. **Monitor data rates**: High-frequency data (>100Hz) works best with WebGL mode
+4. **Regular exports**: Save important data sessions as CSV files
+5. **Port management**: Always stop monitoring before uploading firmware
+
+## 🐛 Known Limitations
+
+- Serial ports are exclusive - cannot monitor while uploading firmware
+- Variable configurations reset when starting new monitoring sessions  
+- Very high data rates (>10kHz) may require WebGL mode for smooth rendering
+- Color changes require reconnection to take effect in some cases
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🤝 Contributing
+
+Issues and pull requests welcome! Visit the [GitHub repository](https://github.com/martijnvwezel/serial-plotter) to contribute.
+
+---
+
+*This README was written with assistance from Claude (Anthropic's AI assistant) to comprehensively document all features and capabilities.*

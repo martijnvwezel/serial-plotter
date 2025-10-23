@@ -34,7 +34,7 @@ class SerialPlotterApp extends LitElement {
   @state()
   private screen: 'raw' | 'plot' = 'plot';
   @state()
-  private fastPlot: boolean = true;
+  private fastPlot: boolean = false;
 
 	@state()
 	autoVariableUpdate: boolean = true;
