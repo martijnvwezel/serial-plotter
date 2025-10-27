@@ -44,6 +44,9 @@ export class SidebarView extends LitElement {
           <span style="font-size: 1.25rem; font-weight: 600; color: #e0e0e0;">Variables</span>
           <button @click="${this.handleReset.bind(this)}" title="Reset variables" style="background: #2a2a2a; color: #e0e0e0; border: 1px solid #888; border-radius: 4px; padding: 0.2em 0.9em; font-size: 1em; cursor: pointer;">Reset</button>
         </div>
+        <div style="font-size: 0.85rem; color: #888; margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: #1a1a1a; border-radius: 4px; border-left: 3px solid #666;">
+          💡 Drag variables to graph to visualize
+        </div>
         <ul style="list-style: none; padding: 0; margin: 0;">
           ${Object.entries(this.variableConfig).map(([key, val]) => {
             const currentValue = this.variableMap.get(key)?.slice(-1)[0] ?? "N/A";
@@ -51,16 +54,23 @@ export class SidebarView extends LitElement {
               <li 
                 draggable="true"
                 @dragstart="${(e: DragEvent) => this.handleDragStart(e, key)}"
-                style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; justify-content: space-between; cursor: grab; padding: 0.3rem; border-radius: 4px; transition: background 0.2s;"
-                @mouseenter="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = '#2a2a2a'}"
-                @mouseleave="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = 'transparent'}"
+                style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; justify-content: space-between; cursor: grab; padding: 0.3rem; border-radius: 4px; transition: background 0.2s, border 0.2s; border: 1px dashed transparent;"
+                @mouseenter="${(e: MouseEvent) => {
+                  (e.currentTarget as HTMLElement).style.background = '#2a2a2a';
+                  (e.currentTarget as HTMLElement).style.borderColor = '#666';
+                }}"
+                @mouseleave="${(e: MouseEvent) => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.borderColor = 'transparent';
+                }}"
               >
-                <div style="display: flex; align-items: center; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span style="color: #888; font-size: 1.2em; user-select: none;">⋮⋮</span>
                   <input type="text" value="${val.visablename || key}" @change="${(e: Event) => this.handleVisiblenameChange(e, key)}" style="width: 50px; font-weight: 600; color: ${val.color}; background: #232323; border: 1px solid #888; border-radius: 4px; padding: 2px 6px;" />
                   <span style="color: #aaa;">Current: ${currentValue}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 40px; justify-content: flex-end;">
-                  <input type="color" value="${val.color}" @input="${(e: Event) => this.handleColorChange(e, key)}" style="border: none; background: none; cursor: pointer; width: 28px; height: 28px; padding: 0;">
+                  <input type="color" value="${val.color}" @input="${(e: Event) => this.handleColorChange(e, key)}" style="border: none; background: none; cursor: pointer; width: 32px; height: 28px; padding: 0;">
                   <button @click="${() => this.handleDeleteVariable(key)}" title="Delete variable" style="background: #3a2323; color: #e57373; border: none; border-radius: 4px; padding: 0 8px; font-size: 1.1em; cursor: pointer; height: 28px;">✕</button>
                 </div>
               </li>
