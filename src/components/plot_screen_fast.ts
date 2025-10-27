@@ -27,7 +27,17 @@ export class PlotScreenFast extends LitElement {
   @state()
   scrollOffset: number = (this.visibleSamples - 1) / 2;
   @state()
-  stats: Array<{ key: string; min: number | string; max: number | string; current: number | string }> = [];
+  stats: Array<{ 
+    key: string; 
+    min: number | string; 
+    max: number | string; 
+    mean: number | string;
+    median: number | string;
+    slope: number | string;
+    peakToPeak: number | string;
+    peakToPeakWidth: number | string;
+    current: number | string;
+  }> = [];
   
   @state()
   autoScaleY: boolean = true;
@@ -210,7 +220,32 @@ export class PlotScreenFast extends LitElement {
       this.yMax = newYMax;
     } else if (event.ctrlKey || event.metaKey) {
       // Ctrl/Cmd + wheel: Zoom Y-axis at mouse position
-      if (this.autoScaleY) return;
+      // Disable auto-scale Y immediately when user starts zooming
+      if (this.autoScaleY) {
+        this.autoScaleY = false;
+        // Initialize yMin/yMax to current data range if not set
+        if (this.yMin === null || this.yMax === null) {
+          let min = Number.POSITIVE_INFINITY;
+          let max = Number.NEGATIVE_INFINITY;
+          const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+          const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
+          const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
+          
+          for (const [name, line] of this.data.entries()) {
+            if (!this.selectedVariables.has(name) || line.length < 2) continue;
+            for (let i = startSample; i <= endSample; i++) {
+              const value = line[i];
+              if (value != null && !isNaN(value) && isFinite(value)) {
+                min = Math.min(min, value);
+                max = Math.max(max, value);
+              }
+            }
+          }
+          this.yMin = min;
+          this.yMax = max;
+        }
+      }
+      
       if (this.yMax === null || this.yMin === null) return;
       
       const rect = (event.target as HTMLElement).getBoundingClientRect();
@@ -269,6 +304,20 @@ export class PlotScreenFast extends LitElement {
                           event.dataTransfer.getData('text/plain');
       
       if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
+        // Find the maximum data length across all variables
+        const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+        
+        // Get the current data for the variable
+        let varData = this.data.get(variableKey) ?? [];
+        
+        // If this variable has less data than others, pad it with null values
+        // This makes it sync with the timeline and start plotting from current position
+        if (varData.length < maxLength) {
+          const nullPadding = new Array(maxLength - varData.length).fill(null);
+          varData = [...nullPadding, ...varData];
+          this.data.set(variableKey, varData);
+        }
+        
         // Toggle the variable selection (show it if hidden, or just keep it shown)
         const newSet = new Set(this.selectedVariables);
         if (!newSet.has(variableKey)) {
@@ -439,13 +488,44 @@ export class PlotScreenFast extends LitElement {
     // --- Stats calculation for visible window ---
     const newStats = Array.from(this.data.entries())
       .map(([key, values]) => {
-        if (!values.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
+        if (!values.length) {
+          return { key, min: 'N/A', max: 'N/A', mean: 'N/A', median: 'N/A', slope: 'N/A', peakToPeak: 'N/A', peakToPeakWidth: 'N/A', current: 'N/A' };
+        }
         const visible = values.slice(startSample, endSample + 1).filter(v => typeof v === 'number' && !isNaN(v));
-        if (!visible.length) return { key, min: 'N/A', max: 'N/A', current: 'N/A' };
+        if (!visible.length) {
+          return { key, min: 'N/A', max: 'N/A', mean: 'N/A', median: 'N/A', slope: 'N/A', peakToPeak: 'N/A', peakToPeakWidth: 'N/A', current: 'N/A' };
+        }
+        
         const minV = Math.min(...visible);
         const maxV = Math.max(...visible);
         const current = visible[visible.length - 1];
-        return { key, min: minV, max: maxV, current };
+        
+        // Calculate mean
+        const mean = visible.reduce((sum, v) => sum + v, 0) / visible.length;
+        
+        // Calculate median
+        const sorted = [...visible].sort((a, b) => a - b);
+        const median = sorted.length % 2 === 0
+          ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+          : sorted[Math.floor(sorted.length / 2)];
+        
+        // Peak to peak height (value difference)
+        const peakToPeak = maxV - minV;
+        
+        // Peak to peak width (sample distance between min and max)
+        const visibleWithIndices = values.slice(startSample, endSample + 1);
+        const minIndex = visibleWithIndices.findIndex(v => v === minV);
+        const maxIndex = visibleWithIndices.findIndex(v => v === maxV);
+        const peakToPeakWidth = Math.abs(maxIndex - minIndex);
+        
+        // Calculate slope between min and max peaks
+        // Slope = (change in value) / (change in samples)
+        let slope: number | string = 'N/A';
+        if (peakToPeakWidth > 0) {
+          slope = (maxV - minV) / peakToPeakWidth;
+        }
+        
+        return { key, min: minV, max: maxV, mean, median, slope, peakToPeak, peakToPeakWidth, current };
       });
     // Only update and requestUpdate if stats changed
     const statsChanged = JSON.stringify(this.stats) !== JSON.stringify(newStats);
@@ -460,7 +540,7 @@ export class PlotScreenFast extends LitElement {
       if (!this.selectedVariables.has(name) || line.length < 2) continue;
       for (let i = startSample; i <= endSample; i++) {
         const value = line[i];
-        if (!isNaN(value) && isFinite(value)) {
+        if (value != null && !isNaN(value) && isFinite(value)) {
           min = Math.min(min, value);
           max = Math.max(max, value);
         }
@@ -636,23 +716,33 @@ export class PlotScreenFast extends LitElement {
     return html`
       <div style="display: flex; flex-direction: column; gap: 1.2rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1.2rem 1.2rem 1.8rem 1.2rem; background: #232323;">
         <!-- Statistics Table -->
-        <div style="margin-bottom: 0.5rem;">
-          <table style="width: 100%; border-collapse: collapse; font-size: 1rem;">
+        <div style="margin-bottom: 0.5rem; overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
             <thead>
               <tr style="background: #232323; color: #aaa;">
-                <th style="padding: 0.3em 0.7em; border-bottom: 1px solid #444; text-align: left;">Variable</th>
-                <th style="padding: 0.3em 0.7em; border-bottom: 1px solid #444; text-align: right;">Min</th>
-                <th style="padding: 0.3em 0.7em; border-bottom: 1px solid #444; text-align: right;">Max</th>
-                <th style="padding: 0.3em 0.7em; border-bottom: 1px solid #444; text-align: right;">Current</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: left;">Variable</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Min</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Max</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Mean</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Median</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Slope</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">P2P</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">P2PW</th>
+                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Current</th>
               </tr>
             </thead>
             <tbody>
               ${filteredStats.map(stat => html`
                 <tr>
-                  <td style="padding: 0.3em 0.7em; color: ${this.getDataColor(stat.key)}; font-weight: 600;">${getDisplayName(stat.key)}</td>
-                  <td style="padding: 0.3em 0.7em; text-align: right;">${formatValue(stat.min)}</td>
-                  <td style="padding: 0.3em 0.7em; text-align: right;">${formatValue(stat.max)}</td>
-                  <td style="padding: 0.3em 0.7em; text-align: right;">${formatValue(stat.current)}</td>
+                  <td style="padding: 0.3em 0.4em; color: ${this.getDataColor(stat.key)}; font-weight: 600;">${getDisplayName(stat.key)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.min)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.max)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.mean)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.median)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.slope)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.peakToPeak)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.peakToPeakWidth)}</td>
+                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.current)}</td>
                 </tr>
               `)}
             </tbody>
@@ -663,14 +753,14 @@ export class PlotScreenFast extends LitElement {
         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
           <label>Auto-scroll</label>
           <input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} />
-          <label>Zoom</label>
+          <label style="display: none;">Zoom</label>
           <input
             type="range"
             min="${PlotScreenFast.MIN_VISIBLE_SAMPLES}"
             max="${Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, maxSamples)}"
             .value="${String(visibleSamples)}"
             @input=${this.handleVisibleSamplesChange}
-            style="flex-grow: 1; max-width: 350px; outline: none;"
+            style="display: none; flex-grow: 1; max-width: 350px; outline: none;"
           />
           <label style="margin-left: 1em;">
             <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {

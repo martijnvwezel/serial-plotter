@@ -8,7 +8,7 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 - **Multiple data format support** - automatic and manual parsing
 - **Interactive plot controls** - zoom, pan, auto-scroll
 - **Variable management** - customize colors, names, and visibility  
-- **Statistics display** - min, max, and current values
+- **Advanced statistics** - min, max, mean, median, slope, peak-to-peak analysis
 - **Raw data monitoring** - view unprocessed serial output
 - **CSV export** - save your data for further analysis
 - **WebGL acceleration** - smooth plotting even with high data rates
@@ -109,7 +109,28 @@ void loop() {
 
 ## 🎛️ Interface Features
 
+### Statistics Table
+
+The plotter provides real-time statistical analysis of your data in the visible window:
+
+- **Min/Max**: Minimum and maximum values in the current view
+- **Mean**: Average of all data points `(sum of values / count)`
+- **Median**: Middle value when sorted (more robust to outliers than mean)
+- **Slope**: Rate of change between min and max peaks
+  - Calculated as: `(Max - Min) / (samples between peaks)`
+  - Positive values indicate upward trends, negative indicate downward trends
+  - Units are in value-units per sample
+- **P2P** (Peak-to-Peak): Height difference between min and max `(Max - Min)`
+  - Shows the signal amplitude or range
+- **P2PW** (Peak-to-Peak Width): Distance in samples between min and max occurrence
+  - Shows how far apart the extremes are in time
+  - Combined with P2P, indicates signal steepness: `Slope = P2P / P2PW`
+- **Current**: Most recent value in the visible window
+
+All statistics update automatically as you zoom, pan, or receive new data. Values are formatted with smart precision (4 significant figures, scientific notation for extremes).
+
 ### Plot Controls
+
 - **Auto-scroll**: Automatically follow new data (toggle on/off)
 - **Zoom slider**: Adjust visible sample range (10 to 100k+ samples)  
 - **Manual panning**: Click and drag to explore historical data
