@@ -71,6 +71,14 @@ export class PlotScreenFast extends LitElement {
   canvasDiv?: HTMLDivElement | null;
   private resizeObserver?: ResizeObserver;
 
+  // Bound event handlers for proper cleanup
+  private boundHandleMouseDown = this.handleMouseDown.bind(this);
+  private boundHandleMouseMove = this.handleMouseMove.bind(this);
+  private boundHandleMouseUp = this.handleMouseUp.bind(this);
+  private boundHandleCanvasWheel = this.handleCanvasWheel.bind(this);
+  private boundHandleDragOver = this.handleDragOver.bind(this);
+  private boundHandleDrop = this.handleDrop.bind(this);
+
   // Allow external updates to add a new line of data (like raw_data_view)
   public addLine(variable: string, value: number) {
     // Only add data if variable is present in variableConfig (i.e., not deleted)
@@ -120,6 +128,14 @@ export class PlotScreenFast extends LitElement {
       newSet.delete(variable);
     }
     this.selectedVariables = newSet;
+  }
+
+  handleRemoveVariable(variable: string) {
+    // Remove the variable from selectedVariables
+    const newSet = new Set(this.selectedVariables);
+    newSet.delete(variable);
+    this.selectedVariables = newSet;
+    this.renderData();
   }
 
   handleAddPlot() {
@@ -352,12 +368,17 @@ export class PlotScreenFast extends LitElement {
       newColors.set(name, obj.color);
     }
     this.dataColors = newColors;
-    // DON'T auto-select all variables - only show what's been dragged in
-    // Remove any selected variables that are no longer in config
-    const currentSelected = new Set(this.selectedVariables);
-    for (const key of currentSelected) {
-      if (!config.hasOwnProperty(key)) {
-        this.selectedVariables.delete(key);
+    
+    // If no variables have been selected yet (graph is empty), auto-select all
+    if (this.selectedVariables.size === 0) {
+      this.selectedVariables = new Set(Object.keys(config));
+    } else {
+      // Remove any selected variables that are no longer in config
+      const currentSelected = new Set(this.selectedVariables);
+      for (const key of currentSelected) {
+        if (!config.hasOwnProperty(key)) {
+          this.selectedVariables.delete(key);
+        }
       }
     }
     this.requestUpdate();
@@ -375,16 +396,45 @@ export class PlotScreenFast extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    
+    // Clear render timer
+    if (this.renderTimer !== null) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = null;
+    }
+    
+    // Remove event listeners using bound handlers
+    if (this.canvasDiv) {
+      this.canvasDiv.removeEventListener("mousedown", this.boundHandleMouseDown);
+      this.canvasDiv.removeEventListener("mousemove", this.boundHandleMouseMove);
+      this.canvasDiv.removeEventListener("mouseup", this.boundHandleMouseUp);
+      this.canvasDiv.removeEventListener("mouseleave", this.boundHandleMouseUp);
+      this.canvasDiv.removeEventListener("wheel", this.boundHandleCanvasWheel);
+      this.canvasDiv.removeEventListener("dragover", this.boundHandleDragOver);
+      this.canvasDiv.removeEventListener("drop", this.boundHandleDrop);
+    }
+    
     // Clean up ResizeObserver
     if (this.resizeObserver && this.canvasDiv) {
       this.resizeObserver.unobserve(this.canvasDiv);
       this.resizeObserver.disconnect();
+      this.resizeObserver = undefined;
     }
+    
     // Clean up PixiJS app
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });
       this.app = undefined;
     }
+    
+    // Clear plot container reference
+    this.plotContainer = undefined;
+    this.canvasDiv = undefined;
+    
+    // Clear data to free memory
+    this.data.clear();
+    this.dataColors.clear();
+    this.selectedVariables.clear();
   }
 
   @state()
@@ -405,17 +455,17 @@ export class PlotScreenFast extends LitElement {
       await this.initPixi();
     }
     
-    // Add event listeners
+    // Add event listeners using bound handlers
     if (this.canvasDiv) {
-      this.canvasDiv.addEventListener("mousedown", this.handleMouseDown.bind(this));
-      this.canvasDiv.addEventListener("mousemove", this.handleMouseMove.bind(this));
-      this.canvasDiv.addEventListener("mouseup", this.handleMouseUp.bind(this));
-      this.canvasDiv.addEventListener("mouseleave", this.handleMouseUp.bind(this));
-      this.canvasDiv.addEventListener("wheel", this.handleCanvasWheel.bind(this), { passive: false });
+      this.canvasDiv.addEventListener("mousedown", this.boundHandleMouseDown);
+      this.canvasDiv.addEventListener("mousemove", this.boundHandleMouseMove);
+      this.canvasDiv.addEventListener("mouseup", this.boundHandleMouseUp);
+      this.canvasDiv.addEventListener("mouseleave", this.boundHandleMouseUp);
+      this.canvasDiv.addEventListener("wheel", this.boundHandleCanvasWheel, { passive: false });
       
       // Add drag and drop event listeners
-      this.canvasDiv.addEventListener("dragover", this.handleDragOver.bind(this));
-      this.canvasDiv.addEventListener("drop", this.handleDrop.bind(this));
+      this.canvasDiv.addEventListener("dragover", this.boundHandleDragOver);
+      this.canvasDiv.addEventListener("drop", this.boundHandleDrop);
     }
     
     // DON'T auto-select variables - graphs start empty
@@ -763,35 +813,80 @@ export class PlotScreenFast extends LitElement {
     };
     
     return html`
-      <div style="display: flex; flex-direction: column; gap: 1.2rem; width: 100%; border: 1px solid #aaa; border-radius: 4px; padding: 1.2rem 1.2rem 1.8rem 1.2rem; background: #232323;">
+      <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%; border: none; border-radius: 12px; padding: 1rem; background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);">
         <!-- Statistics Table -->
-        <div style="margin-bottom: 0.5rem; overflow-x: auto;">
-          <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <div style="margin-bottom: 0.3rem; overflow-x: auto; border-radius: 8px; background: rgba(0, 0, 0, 0.2); max-width: fit-content;">
+          <table style="width: auto; border-collapse: separate; border-spacing: 0; font-size: 0.8rem; font-family: 'Segoe UI', system-ui, sans-serif;">
             <thead>
-              <tr style="background: #232323; color: #aaa;">
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: left;">Variable</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Min</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Max</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Mean</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Median</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Slope</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">P2P</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">P2PW</th>
-                <th style="padding: 0.3em 0.4em; border-bottom: 1px solid #444; text-align: right;">Current</th>
+              <tr style="background: linear-gradient(to bottom, #2d2d2d, #252525); color: #b0b0b0;">
+                <th style="padding: 0.5rem 0.3rem; text-align: center; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; width: 35px; white-space: nowrap;"></th>
+                <th style="padding: 0.5rem 0.7rem; text-align: left; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; position: sticky; top: 0; backdrop-filter: blur(10px); white-space: nowrap;">Variable</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Min</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Max</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Mean</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Median</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Slope</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">P2P</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">P2PW</th>
+                <th style="padding: 0.5rem 0.7rem; text-align: right; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; white-space: nowrap;">Current</th>
               </tr>
             </thead>
             <tbody>
-              ${filteredStats.map(stat => html`
-                <tr>
-                  <td style="padding: 0.3em 0.4em; color: ${this.getDataColor(stat.key)}; font-weight: 600;">${getDisplayName(stat.key)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.min)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.max)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.mean)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.median)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.slope)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.peakToPeak)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.peakToPeakWidth)}</td>
-                  <td style="padding: 0.3em 0.4em; text-align: right;">${formatValue(stat.current)}</td>
+              ${filteredStats.map((stat, index) => html`
+                <tr style="transition: all 0.2s ease; border-bottom: 1px solid rgba(255, 255, 255, 0.05);"
+                  @mouseenter="${(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).style.background = 'linear-gradient(to right, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.05))';
+                    (e.currentTarget as HTMLElement).style.transform = 'translateX(2px)';
+                  }}"
+                  @mouseleave="${(e: MouseEvent) => {
+                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
+                  }}">
+                  <td style="padding: 0.6rem 0.3rem; text-align: center;">
+                    <button @click="${() => this.handleRemoveVariable(stat.key)}" 
+                      title="Remove from graph"
+                      style="
+                        background: rgba(239, 83, 80, 0.1);
+                        color: #ef5350;
+                        border: 1px solid rgba(239, 83, 80, 0.3);
+                        border-radius: 3px;
+                        width: 18px;
+                        min-width: 2rem;
+                        height: 18px;
+                        font-size: 0.75em;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.15s ease;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0;
+                        line-height: 1;
+                      "
+                      @mouseenter="${(e: MouseEvent) => {
+                        const btn = e.currentTarget as HTMLElement;
+                        btn.style.background = 'rgba(239, 83, 80, 0.2)';
+                        btn.style.borderColor = '#ef5350';
+                        btn.style.color = '#fff';
+                      }}"
+                      @mouseleave="${(e: MouseEvent) => {
+                        const btn = e.currentTarget as HTMLElement;
+                        btn.style.background = 'rgba(239, 83, 80, 0.1)';
+                        btn.style.borderColor = 'rgba(239, 83, 80, 0.3)';
+                        btn.style.color = '#ef5350';
+                      }}">
+                      ✕
+                    </button>
+                  </td>
+                  <td style="padding: 0.6rem 0.7rem; color: ${this.getDataColor(stat.key)}; font-weight: 700; font-size: 0.85rem; text-shadow: 0 0 8px ${this.getDataColor(stat.key)}40;">${getDisplayName(stat.key)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.min)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.max)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.mean)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.median)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.slope)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.peakToPeak)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums;">${formatValue(stat.peakToPeakWidth)}</td>
+                  <td style="padding: 0.6rem 0.7rem; text-align: right; color: #e0e0e0; font-variant-numeric: tabular-nums; font-weight: 600;">${formatValue(stat.current)}</td>
                 </tr>
               `)}
             </tbody>

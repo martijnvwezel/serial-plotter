@@ -54,6 +54,9 @@ class SerialPlotterApp extends LitElement {
 	private static readonly BYTES_PER_NUMBER = 8; // Each number (float64) is 8 bytes
 	private currentBufferBytes = 0;
 
+	// Fake data timer
+	private fakeDataTimer: number | null = null;
+
 	@state()
 	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
@@ -190,6 +193,7 @@ class SerialPlotterApp extends LitElement {
 			this.colorPalette[2]
 		];
 		const sendFakeData = () => {
+			if (this.stopped) return;
 			if (t % (dt * 100) === 0) {
 				const now = new Date();
 				const ts = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0');
@@ -204,7 +208,9 @@ class SerialPlotterApp extends LitElement {
 			const line = `[${ts}] ${s1}\t${s2}\t${s3}`;
 			this.processData(line);
 			t += dt;
-			if (!this.stopped && this.running) setTimeout(sendFakeData, 30);
+			if (!this.stopped && this.running) {
+				this.fakeDataTimer = window.setTimeout(sendFakeData, 30);
+			}
 		};
 		sendFakeData();
 	}
@@ -261,9 +267,10 @@ class SerialPlotterApp extends LitElement {
 		this.running = !this.running;
 		this.stopped = !this.running;
 		if (this.running) {
-			this.lineBuffer = [];
-			this.variableMap = new Map();
-			this.currentBufferBytes = 0;
+			// this.lineBuffer = [];
+			// this.variableMap = new Map();
+			// this.currentBufferBytes = 0;
+			// this.samplesExceeded = false;
 			// Add message event listener if not present
 			if (this._messageCallback) {
 					window.addEventListener("message", this._messageCallback);
@@ -274,7 +281,17 @@ class SerialPlotterApp extends LitElement {
 					this.startSerial();
 			}
 		} else {
+			// Clear fake data timer if running
+			if (this.fakeDataTimer !== null) {
+				clearTimeout(this.fakeDataTimer);
+				this.fakeDataTimer = null;
+			}
 			this.stopSerial();
+			// Clear data when stopping to prevent memory leak
+			// this.lineBuffer = [];
+			// this.variableMap = new Map();
+			// this.currentBufferBytes = 0;
+			// this.samplesExceeded = false;
 		}
 	}
 
@@ -614,8 +631,8 @@ private showToast(message: string) {
 			   height: calc(100vh - 70px);
 			}
 			.sidebar {
-			   width: 260px;
-			   min-width: 180px;
+			   width: 320px;
+			   min-width: 280px;
 			   background: #232323;
 			   border-right: 1px solid #444;
 			   padding: 1rem 0.5rem 1rem 1rem;
