@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Advanced Serial Monitor icon - dark mode, 3 color spiked lines">
+  <!-- Terminal frame only -->
+  <rect x="192" y="224" width="640" height="480" rx="48"
+        stroke="#FFFFFF" stroke-width="56" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 3 waveform lines with spikes -->
+  <g stroke-width="44" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- top line - cyan -->
+    <path d="M380 340 
+             L460 340 L480 300 L500 340 
+             L580 340 L600 300 L620 340 
+             L740 340" stroke="#22d3ee"/>
+    <!-- middle line - lime green -->
+    <path d="M380 440 
+             L440 440 L460 400 L480 440 
+             L560 440 L580 400 L600 440 
+             L740 440" stroke="#a3e635"/>
+    <!-- bottom line - amber -->
+    <path d="M380 540 
+             L460 540 L480 500 L500 540 
+             L580 540 L600 500 L620 540 
+             L740 540" stroke="#fbbf24"/>
+  </g>
+</svg>
