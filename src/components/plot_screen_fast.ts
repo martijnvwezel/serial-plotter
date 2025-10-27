@@ -25,7 +25,7 @@ export class PlotScreenFast extends LitElement {
   visibleSamples: number = 8196;
   static readonly MIN_VISIBLE_SAMPLES = 10;
   @state()
-  scrollOffset: number = (this.visibleSamples - 1) / 2;
+  scrollOffset: number = 8196 / 2; // Initialize to half of visibleSamples
   @state()
   stats: Array<{ 
     key: string; 
@@ -64,7 +64,7 @@ export class PlotScreenFast extends LitElement {
   @property()
   lineWidth = 2;
   @property()
-  maxSamples = 10000000;
+  maxSamples = 1000000;
 
   app?: PIXI.Application;
   plotContainer?: PIXI.Container;
@@ -565,9 +565,29 @@ export class PlotScreenFast extends LitElement {
     const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (this.visibleSamples - 1);
     
     // Auto-scroll logic
-    if (this.autoScroll && maxSamples > this.visibleSamples) {
-      const targetScrollOffset = maxSamples - this.visibleSamples / 2;
-      this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
+    if (this.autoScroll) {
+      if (maxSamples > this.visibleSamples) {
+        // If we have more samples than visible, scroll to show the latest
+        const targetScrollOffset = maxSamples - this.visibleSamples / 2;
+        this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
+      } else {
+        // If we have fewer samples than visible, keep scrollOffset at visibleSamples/2
+        // so that sample 0 starts at x = leftBoundary
+        this.scrollOffset = this.visibleSamples / 2;
+      }
+    } else {
+      // When auto-scroll is off, if we have fewer samples than visible window,
+      // clamp scrollOffset to ensure samples stay in view
+      if (maxSamples < this.visibleSamples) {
+        const minScroll = this.visibleSamples / 2;
+        const maxScroll = maxSamples - this.visibleSamples / 2;
+        if (maxScroll < minScroll) {
+          // Very few samples - center them
+          this.scrollOffset = this.visibleSamples / 2;
+        } else {
+          this.scrollOffset = Math.max(minScroll, Math.min(maxScroll, this.scrollOffset));
+        }
+      }
     }
     
     // Draw Y-axis grid and labels
@@ -583,6 +603,17 @@ export class PlotScreenFast extends LitElement {
     }
     gridLines.stroke({ width: 1, color: 0x333333, alpha: 0.3 });
     this.plotContainer.addChild(gridLines);
+    
+    // Create a clipping mask for the data area (between Y-axis and right edge)
+    const clipMask = new PIXI.Graphics();
+    clipMask.rect(
+      padding + yAxisOffset,
+      padding,
+      w - padding * 2 - yAxisOffset,
+      h - padding * 2 - labelPadding
+    );
+    clipMask.fill({ color: 0xffffff });
+    this.plotContainer.addChild(clipMask);
     
     // Draw zero line if it's in the visible range (prominent white line)
     if (yMin <= 0 && yMax >= 0) {
@@ -617,7 +648,7 @@ export class PlotScreenFast extends LitElement {
       const text = new PIXI.Text({
         text: yValue.toFixed(2),
         style: {
-          fontSize: 13,
+          fontSize: 14,
           fill: 0xcccccc,
           align: 'right'
         }
@@ -639,8 +670,8 @@ export class PlotScreenFast extends LitElement {
         const text = new PIXI.Text({
           text: i.toString(),
           style: {
-            fontSize: 13,
-            fill: 0xcccccc,
+            fontSize: 14,
+            fill: 0xaaaaaa,
             align: 'center'
           }
         });
@@ -651,39 +682,51 @@ export class PlotScreenFast extends LitElement {
       }
     }
     
+    // Create a container for data lines with clipping mask
+    const dataLinesContainer = new PIXI.Container();
+    dataLinesContainer.mask = clipMask;
+    this.plotContainer.addChild(dataLinesContainer);
+    
     // Draw data lines
     for (const [name, line] of this.data.entries()) {
       if (!this.selectedVariables.has(name) || line.length < 2) continue;
       let color = this.variableConfig[name]?.color || this.getDataColor(name) || "#ffffff";
       // PixiJS expects color as number, so convert if string
       let colorNum = typeof color === "string" && color.startsWith("#") ? parseInt(color.slice(1), 16) : color;
-      const g = new PIXI.Graphics();
       
-      let hasStarted = false;
+      const leftBoundary = padding + yAxisOffset;
+      const rightBoundary = w - padding;
+      
+      const g = new PIXI.Graphics();
+      let pathStarted = false;
+      
       for (let i = startSample; i <= endSample && i < line.length; i++) {
         const value = line[i];
-        if (value != null && !isNaN(value) && isFinite(value)) {
+        
+        // Check if this point has a valid value
+        const isValidPoint = value != null && !isNaN(value) && isFinite(value);
+        
+        if (isValidPoint) {
           const x = padding + yAxisOffset + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
           const y = h - labelPadding - padding - (value - yMin) * scaleY;
           
-          // Only draw if x is at or to the right of the Y-axis (left padding + yAxisOffset)
-          if (x >= padding + yAxisOffset) {
-            if (!hasStarted) {
-              g.moveTo(x, y);
-              hasStarted = true;
-            } else {
-              g.lineTo(x, y);
-            }
-          } else if (hasStarted) {
-            // If we were drawing and now x < padding, stop the current path
-            hasStarted = false;
+          // Draw the point even if slightly outside bounds to ensure line continuity
+          // The clipping mask will hide parts outside the graph area
+          if (!pathStarted) {
+            g.moveTo(x, y);
+            pathStarted = true;
+          } else {
+            g.lineTo(x, y);
           }
+        } else {
+          // Stop drawing when we hit a null/NaN value
+          pathStarted = false;
         }
       }
       
-      // Stroke the path with PixiJS v8 API
+      // Stroke the entire path
       g.stroke({ width: this.lineWidth, color: colorNum });
-      this.plotContainer.addChild(g);
+      dataLinesContainer.addChild(g);
     }
   }
 
@@ -787,7 +830,7 @@ export class PlotScreenFast extends LitElement {
         </div>
         
         <!-- Plot Area -->
-        <div class="pixi-canvas-div" style="resize: vertical; overflow: auto; width: 100%; height: 750px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
+        <div class="pixi-canvas-div" style="resize: vertical; overflow: auto; width: 100%; height: 500px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
         
         <!-- Add Plot Button -->
         <div style="display: flex; justify-content: flex-start; margin-top: 1.8rem;">
