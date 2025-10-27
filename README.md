@@ -217,4 +217,4 @@ Issues and pull requests welcome! Visit the [GitHub repository](https://github.c
 
 ---
 
-*This README was written with assistance from Claude (Anthropic's AI assistant) to comprehensively document all features and capabilities.*
+*This README was written with assistance from Claude 4.5 (Anthropic's AI assistant) to comprehensively document all features and capabilities.*
