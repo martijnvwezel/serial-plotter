@@ -69,6 +69,7 @@ export class PlotScreenFast extends LitElement {
   app?: PIXI.Application;
   plotContainer?: PIXI.Container;
   canvasDiv?: HTMLDivElement | null;
+  private resizeObserver?: ResizeObserver;
 
   // Allow external updates to add a new line of data (like raw_data_view)
   public addLine(variable: string, value: number) {
@@ -351,8 +352,14 @@ export class PlotScreenFast extends LitElement {
       newColors.set(name, obj.color);
     }
     this.dataColors = newColors;
-    // Always update selectedVariables to match config keys from sidebar
-    this.selectedVariables = new Set(Object.keys(config));
+    // DON'T auto-select all variables - only show what's been dragged in
+    // Remove any selected variables that are no longer in config
+    const currentSelected = new Set(this.selectedVariables);
+    for (const key of currentSelected) {
+      if (!config.hasOwnProperty(key)) {
+        this.selectedVariables.delete(key);
+      }
+    }
     this.requestUpdate();
   }
 
@@ -366,29 +373,24 @@ export class PlotScreenFast extends LitElement {
     return this;
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Clean up ResizeObserver
+    if (this.resizeObserver && this.canvasDiv) {
+      this.resizeObserver.unobserve(this.canvasDiv);
+      this.resizeObserver.disconnect();
+    }
+    // Clean up PixiJS app
+    if (this.app) {
+      this.app.destroy(true, { children: true, texture: true });
+      this.app = undefined;
+    }
+  }
+
   @state()
   updated(changedProps: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     super.updated?.(changedProps);
-    // Auto-enable all variables when data changes
-    if (changedProps.has('data')) {
-      const allVars = Array.from(this.data.keys());
-      if (allVars.length > 0) {
-        // If nothing selected, select all by default
-        if (this.selectedVariables.size === 0) {
-          this.selectedVariables = new Set(allVars);
-        } else {
-          // Add any new variables to the selection
-          let changed = false;
-          for (const v of allVars) {
-            if (!this.selectedVariables.has(v)) {
-              this.selectedVariables.add(v);
-              changed = true;
-            }
-          }
-          if (changed) this.selectedVariables = new Set(this.selectedVariables);
-        }
-      }
-    }
+    // DON'T auto-enable variables - only show what's been explicitly dragged in
   }
 
   async firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -416,26 +418,8 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.addEventListener("drop", this.handleDrop.bind(this));
     }
     
-    if (this.selectedVariables.size === 0) {
-      for (const name of this.data.keys()) {
-        this.selectedVariables.add(name);
-      }
-    }
+    // DON'T auto-select variables - graphs start empty
     
-    // If no data, plot some fake data for testing
-    if (this.data.size === 0) {
-      const fakeX = Array.from({length: 200}, (_, i) => i);
-      const fakeY = fakeX.map(x => 50 * Math.sin(x * 0.1));
-      this.data = new Map([
-        ["sin", fakeY],
-        ["cos", fakeX.map(x => 50 * Math.cos(x * 0.1))]
-      ]);
-      this.variableConfig = {
-        sin: { color: "#ff0000", visablename: "sin" },
-        cos: { color: "#00ff00", visablename: "cos" }
-      };
-      this.selectedVariables = new Set(["sin", "cos"]);
-    }
     this.renderData();
   }
 
@@ -445,10 +429,12 @@ export class PlotScreenFast extends LitElement {
       // Create PixiJS Application with async pattern
       this.app = new PIXI.Application();
       await this.app.init({
-        resizeTo: this.canvasDiv as HTMLElement,
+        width: this.canvasDiv.clientWidth,
+        height: this.canvasDiv.clientHeight,
         background: 0x181818,
         antialias: true,
         resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
       });
       // Support both PixiJS v7 (app.view) and v8+ (app.canvas)
       const pixiCanvas = (this.app as any).canvas || (this.app as any).view;
@@ -459,6 +445,15 @@ export class PlotScreenFast extends LitElement {
       if (this.app && this.app.stage) {
         this.app.stage.addChild(this.plotContainer);
       }
+      
+      // Set up ResizeObserver to handle container resizing
+      this.resizeObserver = new ResizeObserver(() => {
+        if (this.app && this.canvasDiv) {
+          this.app.renderer.resize(this.canvasDiv.clientWidth, this.canvasDiv.clientHeight);
+          this.renderData();
+        }
+      });
+      this.resizeObserver.observe(this.canvasDiv);
     } catch (error) {
       console.error("Failed to initialize PixiJS:", error);
     }
@@ -830,14 +825,14 @@ export class PlotScreenFast extends LitElement {
         </div>
         
         <!-- Plot Area -->
-        <div class="pixi-canvas-div" style="resize: vertical; overflow: auto; width: 100%; height: 500px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
+        <div class="pixi-canvas-div" style="resize: vertical; overflow: hidden; width: 100%; height: 500px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
         
         <!-- Add Plot Button -->
         <div style="display: flex; justify-content: flex-start; margin-top: 1.8rem;">
           <button @click=${this.handleAddPlot}
             id="addplot"
             style="align-self: flex-start; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.45rem 1.1rem; font-size: 1rem; font-weight: 600; letter-spacing: 0.03em; min-width: 8.5rem; cursor: pointer; transition: border 0.2s, box-shadow 0.2s;">
-            Add plot
+            Add plot (experimental)
           </button>
         </div>
       </div>

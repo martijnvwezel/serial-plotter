@@ -34,6 +34,9 @@ class SerialPlotterApp extends LitElement {
   private screen: 'raw' | 'plot' = 'plot';
   @state()
   private fastPlot: boolean = true;
+  
+  @state()
+  private plotInstances: number[] = [0]; // Track multiple plot instances
 
 	@state()
 	autoVariableUpdate: boolean = true;
@@ -105,13 +108,26 @@ class SerialPlotterApp extends LitElement {
 			plot.render();
 		}		
 
-		// Forward to plot-screen-fast
-		const plotFast = this.renderRoot.querySelector('plot-screen-fast') as any;
-		if (plotFast && typeof plotFast.setVariableConfig === 'function') {
-		  plotFast.setVariableConfig(this.variableConfig);
-		}
+		// Forward to all plot-screen-fast instances
+		const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
+		plotFastElements.forEach((plotFast: any) => {
+		  if (plotFast && typeof plotFast.setVariableConfig === 'function') {
+			plotFast.setVariableConfig(this.variableConfig);
+		  }
+		});
 	  });
 	}
+	
+	// Listen for add-plot events from any plot instance
+	this.addEventListener('add-plot', () => {
+	  this.handleAddPlot();
+	});
+  }
+
+  private handleAddPlot() {
+	// Add a new plot instance with a unique ID
+	const newId = Math.max(...this.plotInstances, 0) + 1;
+	this.plotInstances = [...this.plotInstances, newId];
   }
 
 
@@ -687,17 +703,20 @@ private showToast(message: string) {
 			<div class="sidebar">
 				<sidebar-view id="sidebar" .variableMap=${this.variableMap} .variableConfig=${this.variableConfig}></sidebar-view>
 			</div>
-		   <div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
+		   <div class="main-content" style="display: flex; flex-direction: column; gap: 1rem; height: 100%;">
 		  ${this.screen === 'raw'
 			 ? html`<raw-data-view id="rawdataview"
 					 .autoScrollEnabled=${this.autoScrollEnabled}
 					 .hideData=${this.hideData}
 					 .lineBuffer=${this.lineBuffer}
 					 ></raw-data-view>`
-			 : html`<plot-screen-fast id="plotscreen"
-					 .data=${this.variableMap}
-					 .variableConfig=${this.variableConfig}
-					 ></plot-screen-fast>`
+			 : this.plotInstances.map(id => html`
+					<plot-screen-fast 
+						key=${id}
+						.data=${this.variableMap}
+						.variableConfig=${this.variableConfig}
+					></plot-screen-fast>
+				`)
 			   }
 		   </div>
 		 </div>
