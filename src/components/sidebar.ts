@@ -55,7 +55,7 @@ export class SidebarView extends LitElement {
               (e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #2a2a2a 0%, #333 100%)';
               (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
             }}">
-            Reset
+            Reset Buffer
           </button>
         </div>
         <div style="font-size: 0.82rem; color: #999; margin-bottom: 1rem; padding: 0.6rem 0.8rem; background: rgba(100, 150, 255, 0.08); border-radius: 6px; border-left: 3px solid #4a7fc1;">
