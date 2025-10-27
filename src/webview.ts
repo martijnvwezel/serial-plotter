@@ -46,6 +46,11 @@ class SerialPlotterApp extends LitElement {
 	@property()
 	samplesExceeded = false;
 
+	// Buffer limits - 1GB of data
+	private static readonly MAX_BUFFER_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
+	private static readonly BYTES_PER_NUMBER = 8; // Each number (float64) is 8 bytes
+	private currentBufferBytes = 0;
+
 	@state()
 	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
@@ -197,6 +202,43 @@ class SerialPlotterApp extends LitElement {
 		vscode.postMessage({ type: "ports" });
 	}
 
+	// Calculate total buffer size in bytes
+	private calculateBufferSize(): number {
+		let totalSamples = 0;
+		for (const arr of this.variableMap.values()) {
+			totalSamples += arr.length;
+		}
+		return totalSamples * SerialPlotterApp.BYTES_PER_NUMBER;
+	}
+
+	// Trim oldest data to stay within buffer limit
+	private trimBufferToLimit(): void {
+		const currentSize = this.calculateBufferSize();
+		if (currentSize <= SerialPlotterApp.MAX_BUFFER_BYTES) {
+			this.currentBufferBytes = currentSize;
+			return;
+		}
+
+		// Calculate how many samples to remove
+		const bytesToRemove = currentSize - SerialPlotterApp.MAX_BUFFER_BYTES;
+		const samplesToRemove = Math.ceil(bytesToRemove / SerialPlotterApp.BYTES_PER_NUMBER);
+		
+		// Remove samples equally from all variables
+		const numVariables = this.variableMap.size;
+		if (numVariables === 0) return;
+		
+		const samplesPerVariable = Math.ceil(samplesToRemove / numVariables);
+		
+		for (const [key, arr] of this.variableMap.entries()) {
+			if (arr.length > samplesPerVariable) {
+				this.variableMap.set(key, arr.slice(samplesPerVariable));
+			}
+		}
+		
+		this.currentBufferBytes = this.calculateBufferSize();
+		this.samplesExceeded = true;
+	}
+
 	handleStartStop() {
 		if (!this.selected) return;
 		this.error = "";
@@ -205,6 +247,7 @@ class SerialPlotterApp extends LitElement {
 		if (this.running) {
 			this.lineBuffer = [];
 			this.variableMap = new Map();
+			this.currentBufferBytes = 0;
 			// Add message event listener if not present
 			if (this._messageCallback) {
 					window.addEventListener("message", this._messageCallback);
@@ -355,11 +398,13 @@ class SerialPlotterApp extends LitElement {
 				let arr = this.variableMap.get(name) ?? [];
 				const numVal = parseFloat(val);
 				arr.push(!isNaN(numVal) ? numVal : 0);
-				if (arr.length > 100000000) {
-					arr = arr.slice(-100000000);
-					this.samplesExceeded = true;
-				}
 				this.variableMap.set(name, arr);
+				
+				// Check buffer size and trim if necessary
+				this.currentBufferBytes += SerialPlotterApp.BYTES_PER_NUMBER;
+				if (this.currentBufferBytes > SerialPlotterApp.MAX_BUFFER_BYTES) {
+					this.trimBufferToLimit();
+				}
 
 			});
 		

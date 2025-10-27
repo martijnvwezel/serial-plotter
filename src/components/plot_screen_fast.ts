@@ -561,7 +561,7 @@ export class PlotScreenFast extends LitElement {
     const yMax = this.yMax ?? max;
     const height = yMax - yMin;
     const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
-    const yAxisOffset = 50; // Offset for Y-axis labels
+    const yAxisOffset = 60; // Increased offset for Y-axis labels
     const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (this.visibleSamples - 1);
     
     // Auto-scroll logic
@@ -583,6 +583,16 @@ export class PlotScreenFast extends LitElement {
     }
     gridLines.stroke({ width: 1, color: 0x333333, alpha: 0.3 });
     this.plotContainer.addChild(gridLines);
+    
+    // Draw zero line if it's in the visible range (prominent white line)
+    if (yMin <= 0 && yMax >= 0) {
+      const zeroY = h - labelPadding - padding - (0 - yMin) * scaleY;
+      const zeroLine = new PIXI.Graphics();
+      zeroLine.moveTo(padding + yAxisOffset, zeroY);
+      zeroLine.lineTo(w - padding, zeroY);
+      zeroLine.stroke({ width: 2, color: 0xeeeeee, alpha: 0.7 });
+      this.plotContainer.addChild(zeroLine);
+    }
     
     // Draw X and Y axis lines
     const axisLines = new PIXI.Graphics();
@@ -607,13 +617,14 @@ export class PlotScreenFast extends LitElement {
       const text = new PIXI.Text({
         text: yValue.toFixed(2),
         style: {
-          fontSize: 12,
-          fill: 0xaaaaaa,
-          align: 'left'
+          fontSize: 13,
+          fill: 0xcccccc,
+          align: 'right'
         }
       });
-      text.x = 5;
-      text.y = y - 6;
+      text.anchor.set(1, 0.5);
+      text.x = padding + yAxisOffset - 5;
+      text.y = y;
       this.plotContainer.addChild(text);
     }
     
@@ -628,8 +639,8 @@ export class PlotScreenFast extends LitElement {
         const text = new PIXI.Text({
           text: i.toString(),
           style: {
-            fontSize: 12,
-            fill: 0xaaaaaa,
+            fontSize: 13,
+            fill: 0xcccccc,
             align: 'center'
           }
         });
@@ -776,7 +787,7 @@ export class PlotScreenFast extends LitElement {
         </div>
         
         <!-- Plot Area -->
-        <div class="pixi-canvas-div" style="resize: vertical; overflow: auto; width: 100%; height: 600px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
+        <div class="pixi-canvas-div" style="resize: vertical; overflow: auto; width: 100%; height: 750px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
         
         <!-- Add Plot Button -->
         <div style="display: flex; justify-content: flex-start; margin-top: 1.8rem;">
