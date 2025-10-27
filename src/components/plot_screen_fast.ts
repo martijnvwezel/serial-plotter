@@ -609,16 +609,18 @@ export class PlotScreenFast extends LitElement {
     const yAxisOffset = 60; // Increased offset for Y-axis labels
     const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (this.visibleSamples - 1);
     
-    // Auto-scroll logic
+    // Auto-scroll logic with 1024 sample window limit
+    const MAX_AUTO_SCROLL_WINDOW = 255;
     if (this.autoScroll) {
-      if (maxSamples > this.visibleSamples) {
-        // If we have more samples than visible, scroll to show the latest
+      if (maxSamples <= MAX_AUTO_SCROLL_WINDOW) {
+        // Zoom out to fit all data when we have 1024 samples or less
+        this.visibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, maxSamples);
+        this.scrollOffset = this.visibleSamples / 2;
+      } else {
+        // Once we have more than 1024 samples, keep window at 1024 and scroll
+        this.visibleSamples = MAX_AUTO_SCROLL_WINDOW;
         const targetScrollOffset = maxSamples - this.visibleSamples / 2;
         this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
-      } else {
-        // If we have fewer samples than visible, keep scrollOffset at visibleSamples/2
-        // so that sample 0 starts at x = leftBoundary
-        this.scrollOffset = this.visibleSamples / 2;
       }
     } else {
       // When auto-scroll is off, if we have fewer samples than visible window,
