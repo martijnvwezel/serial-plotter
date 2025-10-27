@@ -4,7 +4,6 @@ import { customElement, property, state } from "lit/decorators.js";
 import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
-import "./components/plot_screen";
 import "./components/plot_screen_fast";
 
 interface VSCodeApi {
@@ -34,7 +33,7 @@ class SerialPlotterApp extends LitElement {
   @state()
   private screen: 'raw' | 'plot' = 'plot';
   @state()
-  private fastPlot: boolean = false;
+  private fastPlot: boolean = true;
 
 	@state()
 	autoVariableUpdate: boolean = true;
@@ -399,7 +398,7 @@ class SerialPlotterApp extends LitElement {
 		const regex = /(\w+):\s*(?:'([^']+)'|"([^"]+)"|(#\w+)|((?:rgba?|RGBA?)\s*\([^)]*\))|([a-zA-Z]+))/g;
 		let match;
 		this.variableConfig = {};
-		this.variableOrder = [];
+		this.variableOrder = []; 
 		let colorIdx = 0;
 	   while ((match = regex.exec(rest)) !== null) {
 		   const name = match[1];
@@ -644,24 +643,17 @@ private showToast(message: string) {
 				<sidebar-view id="sidebar" .variableMap=${this.variableMap} .variableConfig=${this.variableConfig}></sidebar-view>
 			</div>
 		   <div class="main-content" style="display: flex; flex-direction: column; height: 100%;">
-		  <div style="margin-bottom: 0.5em;">
-			<label><input type="checkbox" .checked=${this.fastPlot} @change=${(e: Event) => { this.fastPlot = (e.target as HTMLInputElement).checked; }}> Fast Plot (WebGL)</label>
-		  </div>
 		  ${this.screen === 'raw'
 			 ? html`<raw-data-view id="rawdataview"
 					 .autoScrollEnabled=${this.autoScrollEnabled}
 					 .hideData=${this.hideData}
 					 .lineBuffer=${this.lineBuffer}
 					 ></raw-data-view>`
-			 : this.fastPlot
-			   ? html`<plot-screen-fast id="plotscreen"
+			 : html`<plot-screen-fast id="plotscreen"
 					 .data=${this.variableMap}
 					 .variableConfig=${this.variableConfig}
 					 ></plot-screen-fast>`
-			   : html`<plot-screen id="plotscreen"
-					 .variableMap=${this.variableMap}
-					 .variableConfig=${this.variableConfig}
-					 ></plot-screen>`}
+			   }
 		   </div>
 		 </div>
 	  `;

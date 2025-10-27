@@ -48,7 +48,13 @@ export class SidebarView extends LitElement {
           ${Object.entries(this.variableConfig).map(([key, val]) => {
             const currentValue = this.variableMap.get(key)?.slice(-1)[0] ?? "N/A";
             return html`
-              <li style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; justify-content: space-between;">
+              <li 
+                draggable="true"
+                @dragstart="${(e: DragEvent) => this.handleDragStart(e, key)}"
+                style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; justify-content: space-between; cursor: grab; padding: 0.3rem; border-radius: 4px; transition: background 0.2s;"
+                @mouseenter="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = '#2a2a2a'}"
+                @mouseleave="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.background = 'transparent'}"
+              >
                 <div style="display: flex; align-items: center; gap: 1rem;">
                   <input type="text" value="${val.visablename || key}" @change="${(e: Event) => this.handleVisiblenameChange(e, key)}" style="width: 50px; font-weight: 600; color: ${val.color}; background: #232323; border: 1px solid #888; border-radius: 4px; padding: 2px 6px;" />
                   <span style="color: #aaa;">Current: ${currentValue}</span>
@@ -91,6 +97,14 @@ export class SidebarView extends LitElement {
       bubbles: true,
       composed: true
     }));
+  }
+
+  private handleDragStart(e: DragEvent, key: string) {
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('text/plain', key);
+      e.dataTransfer.setData('application/x-variable-key', key);
+    }
   }
   
 
