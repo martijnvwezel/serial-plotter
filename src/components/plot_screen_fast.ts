@@ -390,8 +390,8 @@ export class PlotScreenFast extends LitElement {
     this.renderData();
   }
 
-  createRenderRoot(): Element | ShadowRoot {
-    return this;
+  createRenderRoot(): HTMLElement {
+    return this as unknown as HTMLElement;
   }
 
   disconnectedCallback() {
@@ -582,7 +582,7 @@ export class PlotScreenFast extends LitElement {
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
     for (const [name, line] of this.data.entries()) {
-      if (!this.selectedVariables.has(name) || line.length < 2) continue;
+      if (!this.selectedVariables.has(name) || line.length < 1) continue;
       for (let i = startSample; i <= endSample; i++) {
         const value = line[i];
         if (value != null && !isNaN(value) && isFinite(value)) {
@@ -607,14 +607,18 @@ export class PlotScreenFast extends LitElement {
     const height = yMax - yMin;
     const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
     const yAxisOffset = 60; // Increased offset for Y-axis labels
-    const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (this.visibleSamples - 1);
+    
+    // Ensure minimum visible samples of 10 for single data points
+    const effectiveVisibleSamples = Math.max(10, this.visibleSamples);
+    const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (effectiveVisibleSamples - 1);
     
     // Auto-scroll logic with 1024 sample window limit
     const MAX_AUTO_SCROLL_WINDOW = 255;
     if (this.autoScroll) {
       if (maxSamples <= MAX_AUTO_SCROLL_WINDOW) {
         // Zoom out to fit all data when we have 1024 samples or less
-        this.visibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, maxSamples);
+        // But ensure minimum of 10 samples for visibility
+        this.visibleSamples = Math.max(10, maxSamples);
         this.scrollOffset = this.visibleSamples / 2;
       } else {
         // Once we have more than 1024 samples, keep window at 1024 and scroll
@@ -709,10 +713,10 @@ export class PlotScreenFast extends LitElement {
     // Draw X-axis labels
     const labelWidthPx = 96;
     const numXLabels = Math.floor(w / labelWidthPx);
-    const step = Math.ceil(this.visibleSamples / numXLabels);
+    const step = Math.ceil(effectiveVisibleSamples / numXLabels);
     
     for (let i = startSample; i <= endSample; i++) {
-      const x = padding + yAxisOffset + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+      const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
       if (x >= padding + yAxisOffset && x <= w - padding && i % step === 0) {
         const text = new PIXI.Text({
           text: i.toString(),
@@ -736,7 +740,7 @@ export class PlotScreenFast extends LitElement {
     
     // Draw data lines
     for (const [name, line] of this.data.entries()) {
-      if (!this.selectedVariables.has(name) || line.length < 2) continue;
+      if (!this.selectedVariables.has(name) || line.length < 1) continue;
       let color = this.variableConfig[name]?.color || this.getDataColor(name) || "#ffffff";
       // PixiJS expects color as number, so convert if string
       let colorNum = typeof color === "string" && color.startsWith("#") ? parseInt(color.slice(1), 16) : color;
@@ -746,7 +750,9 @@ export class PlotScreenFast extends LitElement {
       
       const g = new PIXI.Graphics();
       let pathStarted = false;
+      let pointCount = 0;
       
+      // First pass: count valid points and draw lines
       for (let i = startSample; i <= endSample && i < line.length; i++) {
         const value = line[i];
         
@@ -754,7 +760,8 @@ export class PlotScreenFast extends LitElement {
         const isValidPoint = value != null && !isNaN(value) && isFinite(value);
         
         if (isValidPoint) {
-          const x = padding + yAxisOffset + (i - this.scrollOffset + this.visibleSamples / 2) * pixelsPerSample;
+          pointCount++;
+          const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
           const y = h - labelPadding - padding - (value - yMin) * scaleY;
           
           // Draw the point even if slightly outside bounds to ensure line continuity
@@ -771,8 +778,32 @@ export class PlotScreenFast extends LitElement {
         }
       }
       
-      // Stroke the entire path
-      g.stroke({ width: this.lineWidth, color: colorNum });
+      // Stroke the entire path if we have more than one point
+      if (pointCount > 1) {
+        g.stroke({ width: this.lineWidth, color: colorNum });
+      }
+      
+      // Second pass: draw circles for single points or all points if only one exists
+      if (pointCount === 1 || line.length === 1) {
+        for (let i = startSample; i <= endSample && i < line.length; i++) {
+          const value = line[i];
+          const isValidPoint = value != null && !isNaN(value) && isFinite(value);
+          
+          if (isValidPoint) {
+            const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
+            const y = h - labelPadding - padding - (value - yMin) * scaleY;
+            
+            // Draw a circle for the point
+            g.circle(x, y, 4);
+            g.fill({ color: colorNum });
+            
+            // Add an outline for better visibility
+            g.circle(x, y, 4);
+            g.stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
+          }
+        }
+      }
+      
       dataLinesContainer.addChild(g);
     }
   }

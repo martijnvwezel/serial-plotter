@@ -2,7 +2,7 @@
   "name": "muino-serial-plotter",
   "displayName": "muino-serial-plotter",
   "description": "Plot data received via a serial port in a dedicated advance pane with analytics on the signals.",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "repository": "https://github.com/martijnvwezel/serial-plotter",
   "publisher": "muino",
   "icon": "icon.png",

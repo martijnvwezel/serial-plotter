@@ -1,6 +1,10 @@
 interface Port {
 	path: string;
 	manufacturer?: string;
+	vendorId?: string; // we want as much info as possible so we can match devices super robust
+	productId?: string;
+	serialNumber?: string;
+	pnpId?: string;
 }
 
 interface PortsRequest {
@@ -16,6 +20,11 @@ interface StartMonitorPortRequest {
 	type: "start-monitor";
 	port: string;
 	baudRate: number;
+	deviceId?: {
+		vendorId?: string;
+		productId?: string;
+		serialNumber?: string;
+	};
 }
 
 interface StopMonitorPortRequest {
@@ -32,11 +41,26 @@ interface DataResponse {
 	text: string;
 }
 
+interface ConnectionStatusResponse {
+	type: "connection-status";
+	connected: boolean;
+	message?: string;
+}
+
 interface SaveCsvRequest {
 	type: "save-csv";
 	filename: string;
 	content: string;
 }
 
-type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest;
-type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse;
+interface ReconnectRequest {
+	type: "reconnect";
+}
+
+interface SendCommandRequest {
+	type: "send-command";
+	command: string;
+}
+
+type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest | ReconnectRequest | SendCommandRequest;
+type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse | ConnectionStatusResponse;

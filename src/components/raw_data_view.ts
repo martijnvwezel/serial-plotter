@@ -15,6 +15,9 @@ export class RawDataView extends LitElement {
 
   @property({ type: Boolean })
   hideData = false;
+  
+  @property({ type: Boolean })
+  showTimestamp = true;
 
   @query('.raw-data-pre')
   private preElement!: HTMLPreElement;
@@ -58,6 +61,10 @@ export class RawDataView extends LitElement {
   handleHideShowData(e: Event) {
     this.hideData = (e.target as HTMLInputElement).checked;
   }
+  
+  handleToggleTimestamp(e: Event) {
+    this.showTimestamp = (e.target as HTMLInputElement).checked;
+  }
 
   handleClearRaw() {
     console.log("Clearing raw data");
@@ -74,7 +81,16 @@ export class RawDataView extends LitElement {
   }
 
   render() {
-    const displayText = this._lineBuffer.length === 0 ? 'connection...' : this._lineBuffer.join("\n");
+    // Process lines to optionally remove timestamps
+    let displayLines = this._lineBuffer;
+    if (!this.showTimestamp) {
+      displayLines = this._lineBuffer.map(line => {
+        // Remove timestamp pattern like [HH:MM:SS.mmm] from the start
+        return line.replace(/^\[[^\]]+\]\s*/, '');
+      });
+    }
+    
+    const displayText = displayLines.length === 0 ? 'connection...' : displayLines.join("\n");
     return html`
       <div id="root" class="raw-data-root">
         <div class="raw-data-container">
@@ -86,6 +102,9 @@ export class RawDataView extends LitElement {
             </label>
             <label>
               <input id="hidedata" type="checkbox" @change=${this.handleHideShowData} .checked=${this.hideData} /> Hide data lines
+            </label>
+            <label>
+              <input id="showtimestamp" type="checkbox" @change=${this.handleToggleTimestamp} .checked=${this.showTimestamp} /> Show timestamp
             </label>
             <button id="clearraw" class="button" @click=${this.handleClearRaw}>
               Clear

@@ -23,12 +23,18 @@ class SerialPlotterApp extends LitElement {
 
 	@state()
 	selected: string | undefined;
+	
+	@state()
+	selectedDevice: Port | undefined;
 
 	@state()
 	running: boolean = false;
 
 	@state()
 	error?: string;
+	
+	@state()
+	connectionStatus?: string;
 
   @state()
   private screen: 'raw' | 'plot' = 'plot';
@@ -37,9 +43,24 @@ class SerialPlotterApp extends LitElement {
   
   @state()
   private plotInstances: number[] = [0]; // Track multiple plot instances
+  
+  @state()
+  private sidebarVisible: boolean = true;
 
 	@state()
 	autoVariableUpdate: boolean = true;
+	
+	@state()
+	commandInput: string = "";
+	
+	@state()
+	commandHistory: string[] = [];
+	
+	@state()
+	isRepeating: boolean = false;
+	
+	private repeatTimer: number | null = null;
+	private repeatInterval: number = 1000; // 1 second default
 
 	public lineBuffer: string[] = ["Connecting ..."];
 	public variableMap: Map<string, number[]> = new Map<string, number[]>();
@@ -136,8 +157,8 @@ class SerialPlotterApp extends LitElement {
 
 	private stopped = false;
 
-	createRenderRoot(): Element | ShadowRoot {
-		return this;
+	createRenderRoot(): HTMLElement {
+		return this as unknown as HTMLElement;
 	}
 
 	connectedCallback(): void {
@@ -161,15 +182,27 @@ class SerialPlotterApp extends LitElement {
 									   const matchingPort = this.ports.find((p) => p.path === previouslySelected);
 									   if (matchingPort) {
 											   this.selected = matchingPort.path;
+											   this.selectedDevice = matchingPort;
 									   }
 							   }
-							   if (!this.selected) this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
+							   if (!this.selected) {
+								   this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
+								   this.selectedDevice = this.ports[this.ports.length - 1];
+							   }
 					   }
 					   if (message.type == "error") {
 							   if (this.running) {
 									   this.handleStartStop();
 							   }
-							   this.error = "Could not open port or device disconnected";
+							   this.error = message.text;
+					   }
+					   if (message.type == "connection-status") {
+						   if (message.connected) {
+							   this.connectionStatus = message.message || "Connected";
+							   this.error = undefined;
+						   } else {
+							   this.connectionStatus = message.message || "Disconnected";
+						   }
 					   }
 					   if (message.type == "data") {
 							this.handleSerialData(message.text);
@@ -218,6 +251,7 @@ class SerialPlotterApp extends LitElement {
 	handlePortChange(e: Event) {
 		const target = e.target as HTMLSelectElement;
 		this.selected = target.value;
+		this.selectedDevice = this.ports.find(p => p.path === target.value);
 	}
 
 	handleRefresh() {
@@ -286,6 +320,14 @@ class SerialPlotterApp extends LitElement {
 				clearTimeout(this.fakeDataTimer);
 				this.fakeDataTimer = null;
 			}
+			// Stop command repeat if running
+			if (this.isRepeating) {
+				this.isRepeating = false;
+				if (this.repeatTimer !== null) {
+					clearInterval(this.repeatTimer);
+					this.repeatTimer = null;
+				}
+			}
 			this.stopSerial();
 			// Clear data when stopping to prevent memory leak
 			// this.lineBuffer = [];
@@ -300,7 +342,12 @@ class SerialPlotterApp extends LitElement {
 		const request: StartMonitorPortRequest = {
 			type: "start-monitor",
 			port: this.selected!,
-			baudRate: baudRate
+			baudRate: baudRate,
+			deviceId: this.selectedDevice ? {
+				vendorId: this.selectedDevice.vendorId,
+				productId: this.selectedDevice.productId,
+				serialNumber: this.selectedDevice.serialNumber
+			} : undefined
 		};
 		vscode.postMessage(request);
 	}
@@ -521,6 +568,72 @@ class SerialPlotterApp extends LitElement {
 	private handleAutoVariableUpdateToggle() {
 		this.autoVariableUpdate = !this.autoVariableUpdate;
 	}
+	
+	private handleSidebarToggle() {
+		this.sidebarVisible = !this.sidebarVisible;
+	}
+	
+	private handleReconnect() {
+		vscode.postMessage({ type: "reconnect" });
+	}
+	
+	private handleCommandInput(e: Event) {
+		const input = e.target as HTMLInputElement;
+		this.commandInput = input.value;
+	}
+	
+	private handleSendCommand() {
+		if (!this.commandInput.trim()) return;
+		
+		vscode.postMessage({ 
+			type: "send-command",
+			command: this.commandInput
+		});
+		
+		// Add to history if not already present
+		if (!this.commandHistory.includes(this.commandInput)) {
+			this.commandHistory = [this.commandInput, ...this.commandHistory].slice(0, 10); // Keep last 10 commands
+		}
+	}
+	
+	private handleRepeatToggle() {
+		this.isRepeating = !this.isRepeating;
+		
+		if (this.isRepeating) {
+			// Start repeating
+			this.handleSendCommand(); // Send immediately
+			this.repeatTimer = window.setInterval(() => {
+				this.handleSendCommand();
+			}, this.repeatInterval);
+		} else {
+			// Stop repeating
+			if (this.repeatTimer !== null) {
+				clearInterval(this.repeatTimer);
+				this.repeatTimer = null;
+			}
+		}
+	}
+	
+	private handleRepeatIntervalChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		this.repeatInterval = parseInt(input.value) || 1000;
+		
+		// Restart repeat timer with new interval if currently repeating
+		if (this.isRepeating && this.repeatTimer !== null) {
+			clearInterval(this.repeatTimer);
+			this.repeatTimer = window.setInterval(() => {
+				this.handleSendCommand();
+			}, this.repeatInterval);
+		}
+	}
+	
+	private handleHistorySelect(e: Event) {
+		const select = e.target as HTMLSelectElement;
+		if (select.value) {
+			this.commandInput = select.value;
+			this.requestUpdate();
+		}
+	}
 	   private downloadCSV() {
 			   // Convert lineBuffer to CSV string
 			   if (!this.lineBuffer || this.lineBuffer.length === 0) return;
@@ -660,7 +773,14 @@ private showToast(message: string) {
 				  <select id="port" @focus="${this.handleRefresh}" @change="${this.handlePortChange}" ?disabled="${this.running}">
 					 ${map(
 			this.ports,
-			(p) => html` <option value="${p.path}" ?selected="${this.selected === p.path}">${p.path + (p.manufacturer ? " - " + p.manufacturer : "")}</option> `
+			(p) => {
+				const displayName = p.path === '/dev/fake_serial' 
+					? `${p.path} - Simulated`
+					: p.manufacturer 
+						? `${p.path} - ${p.manufacturer}${p.vendorId ? ` (${p.vendorId}:${p.productId})` : ''}`
+						: p.path;
+				return html`<option value="${p.path}" ?selected="${this.selected === p.path}">${displayName}</option>`;
+			}
 		)}
 				  </select>
 			   </div>
@@ -693,6 +813,28 @@ private showToast(message: string) {
 				: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>Start`}
 				  </button>
 			   </div>
+			   ${this.connectionStatus ? html`
+			   <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-left: 1rem;">
+				  <span class="selector-label">Status</span>
+				  <div style="display: flex; align-items: center; gap: 0.5rem; height: 2.4rem;">
+					 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${this.connectionStatus.includes('Connected') ? '#2ecc71' : '#e74c3c'}" stroke-width="2">
+						<circle cx="12" cy="12" r="10" fill="${this.connectionStatus.includes('Connected') ? '#2ecc71' : '#e74c3c'}" opacity="0.3"/>
+					 </svg>
+					 <span style="color: #e0e0e0; font-size: 0.95rem;">${this.connectionStatus}</span>
+				  </div>
+			   </div>
+			   ` : nothing}
+			   ${!this.running && this.connectionStatus && !this.connectionStatus.includes('Connected') ? html`
+			   <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-left: 1rem;">
+				  <span class="selector-label">Action</span>
+				  <button class="toggle-btn" @click="${this.handleReconnect}" title="Try to reconnect" style="height: 2.4rem;">
+					 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+					 </svg>
+					 Reconnect
+				  </button>
+			   </div>
+			   ` : nothing}
 			</div>
 			<div style="display: flex; align-items: center; gap: 0.5rem;">
 			   <button class="toggle-btn" @click="${this.downloadCSV}" title="Download data">
@@ -713,13 +855,80 @@ private showToast(message: string) {
 				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#2ecc71" stroke-width="2" fill="#2ecc71" opacity="0.2"/><path d="M8 12l2 2 4-4" stroke="#2ecc71" stroke-width="2" fill="none"/></svg> Auto Variable Update: On`
 				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke="#e74c3c" stroke-width="2" fill="#e74c3c" opacity="0.2"/><line x1="8" y1="8" x2="16" y2="16" stroke="#e74c3c" stroke-width="2"/><line x1="16" y1="8" x2="8" y2="16" stroke="#e74c3c" stroke-width="2"/></svg> Auto Variable Update: Off`}
 			   </button>
+			   <button class="toggle-btn" @click="${this.handleSidebarToggle}" title="Toggle sidebar visibility">
+				  ${this.sidebarVisible
+				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><line x1="9" y1="3" x2="9" y2="21" stroke="#aaa"/></svg> Hide Sidebar`
+				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><line x1="9" y1="3" x2="9" y2="21" stroke="#aaa"/></svg> Show Sidebar`}
+			   </button>
 			</div>
 		 </div>
 		 ${this.error ? html`<div class="error-message">${this.error}</div>` : nothing}
+		 
+		 <!-- Serial Command Sender -->
+		 ${this.running ? html`
+		 <div style="background: #232323; padding: 1rem 2rem; border-bottom: 1px solid #444;">
+			<div style="display: flex; align-items: center; gap: 1rem;">
+			   <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem;">
+				  <div style="display: flex; gap: 0.5rem; align-items: center;">
+					 <label style="color: #e0e0e0; font-size: 0.9rem; min-width: 80px;">Command:</label>
+					 <input 
+						type="text" 
+						.value="${this.commandInput}"
+						@input="${this.handleCommandInput}"
+						@keydown="${(e: KeyboardEvent) => {
+							if (e.key === 'Enter' && !this.isRepeating) {
+								this.handleSendCommand();
+							}
+						}}"
+						placeholder="Enter command to send..."
+						style="flex: 1; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 1rem; font-family: monospace;"
+					 />
+					 ${this.commandHistory.length > 0 ? html`
+					 <select 
+						@change="${this.handleHistorySelect}"
+						style="background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;">
+						<option value="">History...</option>
+						${this.commandHistory.map(cmd => html`<option value="${cmd}">${cmd}</option>`)}
+					 </select>
+					 ` : nothing}
+				  </div>
+				  <div style="display: flex; gap: 0.5rem; align-items: center;">
+					 <label style="color: #e0e0e0; font-size: 0.9rem; min-width: 80px;">Repeat (ms):</label>
+					 <input 
+						type="number" 
+						.value="${this.repeatInterval}"
+						@input="${this.handleRepeatIntervalChange}"
+						min="100"
+						step="100"
+						?disabled="${!this.isRepeating}"
+						style="width: 120px; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;"
+					 />
+				  </div>
+			   </div>
+			   <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+				  <button 
+					 @click="${this.handleSendCommand}"
+					 ?disabled="${!this.commandInput.trim() || this.isRepeating}"
+					 style="background: #2ecc71; color: white; border: 1px solid #27ae60; border-radius: 6px; padding: 0.6rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; min-width: 100px; transition: all 0.2s;">
+					 Send
+				  </button>
+				  <button 
+					 @click="${this.handleRepeatToggle}"
+					 ?disabled="${!this.commandInput.trim()}"
+					 style="background: ${this.isRepeating ? '#e74c3c' : '#3498db'}; color: white; border: 1px solid ${this.isRepeating ? '#c0392b' : '#2980b9'}; border-radius: 6px; padding: 0.6rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; min-width: 100px; transition: all 0.2s;">
+					 ${this.isRepeating ? '⏹ Stop Repeat' : '🔁 Repeat'}
+				  </button>
+			   </div>
+			</div>
+		 </div>
+		 ` : nothing}
+		 
 		 <div class="main-layout">
+			${this.sidebarVisible ? html`
 			<div class="sidebar">
 				<sidebar-view id="sidebar" .variableMap=${this.variableMap} .variableConfig=${this.variableConfig}></sidebar-view>
 			</div>
+			` : nothing}
 		   <div class="main-content" style="display: flex; flex-direction: column; gap: 1rem; height: 100%;">
 		  ${this.screen === 'raw'
 			 ? html`<raw-data-view id="rawdataview"
