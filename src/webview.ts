@@ -146,12 +146,30 @@ class SerialPlotterApp extends LitElement {
 	this.addEventListener('add-plot', () => {
 	  this.handleAddPlot();
 	});
+	
+	// Listen for clear-buffer events from raw-data-view
+	this.addEventListener('clear-buffer', () => {
+	  this.handleClearBuffer();
+	});
   }
 
   private handleAddPlot() {
 	// Add a new plot instance with a unique ID
 	const newId = Math.max(...this.plotInstances, 0) + 1;
 	this.plotInstances = [...this.plotInstances, newId];
+  }
+  
+  private handleClearBuffer() {
+	console.log("Clearing main line buffer");
+	this.lineBuffer = [];
+	
+	// Also clear the raw-data-view's internal buffer
+	const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
+	if (rawDataView) {
+		rawDataView.lineBuffer = [];
+	}
+	
+	this.requestUpdate();
   }
 
 
@@ -394,12 +412,11 @@ class SerialPlotterApp extends LitElement {
 
 		this.lineBuffer.push(...lines);
 
-		// this.lineBuffer = [...this.lineBuffer];
 		// Live update the raw-data-view if present
 		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
 		if (rawDataView) {
-			rawDataView.lineBuffer = this.lineBuffer;		
-			rawDataView.render();
+			// Use addLine to properly trigger re-render with current timestamp setting
+			rawDataView.addLine(lines);
 		}
 		const sidebar = document.querySelector('sidebar-view') as any;
 		if (sidebar) {
@@ -866,59 +883,51 @@ private showToast(message: string) {
 		 
 		 <!-- Serial Command Sender -->
 		 ${this.running ? html`
-		 <div style="background: #232323; padding: 1rem 2rem; border-bottom: 1px solid #444;">
-			<div style="display: flex; align-items: center; gap: 1rem;">
-			   <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem;">
-				  <div style="display: flex; gap: 0.5rem; align-items: center;">
-					 <label style="color: #e0e0e0; font-size: 0.9rem; min-width: 80px;">Command:</label>
-					 <input 
-						type="text" 
-						.value="${this.commandInput}"
-						@input="${this.handleCommandInput}"
-						@keydown="${(e: KeyboardEvent) => {
-							if (e.key === 'Enter' && !this.isRepeating) {
-								this.handleSendCommand();
-							}
-						}}"
-						placeholder="Enter command to send..."
-						style="flex: 1; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 1rem; font-family: monospace;"
-					 />
-					 ${this.commandHistory.length > 0 ? html`
-					 <select 
-						@change="${this.handleHistorySelect}"
-						style="background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;">
-						<option value="">History...</option>
-						${this.commandHistory.map(cmd => html`<option value="${cmd}">${cmd}</option>`)}
-					 </select>
-					 ` : nothing}
-				  </div>
-				  <div style="display: flex; gap: 0.5rem; align-items: center;">
-					 <label style="color: #e0e0e0; font-size: 0.9rem; min-width: 80px;">Repeat (ms):</label>
-					 <input 
-						type="number" 
-						.value="${this.repeatInterval}"
-						@input="${this.handleRepeatIntervalChange}"
-						min="100"
-						step="100"
-						?disabled="${!this.isRepeating}"
-						style="width: 120px; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;"
-					 />
-				  </div>
-			   </div>
-			   <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-				  <button 
-					 @click="${this.handleSendCommand}"
-					 ?disabled="${!this.commandInput.trim() || this.isRepeating}"
-					 style="background: #2ecc71; color: white; border: 1px solid #27ae60; border-radius: 6px; padding: 0.6rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; min-width: 100px; transition: all 0.2s;">
-					 Send
-				  </button>
-				  <button 
-					 @click="${this.handleRepeatToggle}"
-					 ?disabled="${!this.commandInput.trim()}"
-					 style="background: ${this.isRepeating ? '#e74c3c' : '#3498db'}; color: white; border: 1px solid ${this.isRepeating ? '#c0392b' : '#2980b9'}; border-radius: 6px; padding: 0.6rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; min-width: 100px; transition: all 0.2s;">
-					 ${this.isRepeating ? '⏹ Stop Repeat' : '🔁 Repeat'}
-				  </button>
-			   </div>
+		 <div style="background: #232323; padding: 0.75rem 2rem; border-bottom: 1px solid #444;">
+			<div style="display: flex; align-items: center; gap: 0.75rem;">
+			   <label style="color: #e0e0e0; font-size: 0.9rem; white-space: nowrap;">Command:</label>
+			   <input 
+				  type="text" 
+				  .value="${this.commandInput}"
+				  @input="${this.handleCommandInput}"
+				  @keydown="${(e: KeyboardEvent) => {
+					  if (e.key === 'Enter' && !this.isRepeating) {
+						  this.handleSendCommand();
+					  }
+				  }}"
+				  placeholder="Enter command to send..."
+				  style="flex: 1; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 1rem; font-family: monospace;"
+			   />
+			   ${this.commandHistory.length > 0 ? html`
+			   <select 
+				  @change="${this.handleHistorySelect}"
+				  style="min-width: 200px; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;">
+				  <option value="">History...</option>
+				  ${this.commandHistory.map(cmd => html`<option value="${cmd}">${cmd}</option>`)}
+			   </select>
+			   ` : nothing}
+			   <label style="color: #e0e0e0; font-size: 0.9rem; white-space: nowrap;">Repeat (ms):</label>
+			   <input 
+				  type="number" 
+				  .value="${this.repeatInterval}"
+				  @input="${this.handleRepeatIntervalChange}"
+				  min="100"
+				  step="100"
+				  ?disabled="${!this.isRepeating}"
+				  style="width: 100px; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;"
+			   />
+			   <button 
+				  @click="${this.handleSendCommand}"
+				  ?disabled="${!this.commandInput.trim() || this.isRepeating}"
+				  style="background: #2ecc71; color: white; border: 1px solid #27ae60; border-radius: 6px; padding: 0.5rem 1rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;">
+				  Send
+			   </button>
+			   <button 
+				  @click="${this.handleRepeatToggle}"
+				  ?disabled="${!this.commandInput.trim()}"
+				  style="background: ${this.isRepeating ? '#e74c3c' : '#3498db'}; color: white; border: 1px solid ${this.isRepeating ? '#c0392b' : '#2980b9'}; border-radius: 6px; padding: 0.5rem 1rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s;">
+				  ${this.isRepeating ? '⏹ Stop' : '🔁 Repeat'}
+			   </button>
 			</div>
 		 </div>
 		 ` : nothing}

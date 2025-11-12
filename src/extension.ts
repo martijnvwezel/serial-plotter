@@ -32,17 +32,31 @@ export async function activate(context: vscode.ExtensionContext) {
 
 			panel.onDidDispose(
 				() => {
-					panel = undefined;
+					info("Panel disposed - cleaning up resources");
+					
+					// Stop reconnect polling
 					if (reconnectTimer) {
 						clearInterval(reconnectTimer);
 						reconnectTimer = undefined;
 					}
+					
+					// Close and cleanup serial port
 					if (port) {
-						port.close();
+						try {
+							port.removeAllListeners(); // Remove all event listeners
+							port.close();
+							info("Closed serial port on panel dispose");
+						} catch (err: any) {
+							info(`Error closing port on dispose: ${err.message}`);
+						}
 						port = undefined;
-						info(`Stopped monitoring port`);
 					}
+					
+					// Reset state
 					isMonitoring = false;
+					lastDeviceId = undefined;
+					panel = undefined;
+					
 					// Persist that the panel is closed
 					context.globalState.update(PANEL_STATE_KEY, false);
 				},
@@ -201,12 +215,56 @@ async function processProtocolMessage(message: ProtocolRequests) {
 	   }
 }
 
-export function deactivate() {}
+export function deactivate() {
+	// Clean up everything when extension is deactivated
+	info("Extension deactivating - cleaning up resources");
+	
+	// Stop reconnect polling
+	if (reconnectTimer) {
+		clearInterval(reconnectTimer);
+		reconnectTimer = undefined;
+	}
+	
+	// Close serial port
+	if (port) {
+		try {
+			port.close();
+			info("Closed serial port during deactivation");
+		} catch (err: any) {
+			info(`Error closing port during deactivation: ${err.message}`);
+		}
+		port = undefined;
+	}
+	
+	// Dispose panel
+	if (panel) {
+		panel.dispose();
+		panel = undefined;
+	}
+	
+	// Reset state
+	isMonitoring = false;
+	lastDeviceId = undefined;
+	lastBaudRate = 115200;
+}
 
 async function startMonitoring(portPath: string, baudRate: number) {
+	// Clean up existing port before starting new one
 	if (port) {
-		port.close();
+		info("Cleaning up existing port before starting new monitoring");
+		try {
+			port.removeAllListeners();
+			port.close();
+		} catch (err: any) {
+			info(`Error cleaning up old port: ${err.message}`);
+		}
 		port = undefined;
+	}
+	
+	// Stop any existing reconnect timer
+	if (reconnectTimer) {
+		clearInterval(reconnectTimer);
+		reconnectTimer = undefined;
 	}
 	
 	try {
@@ -290,17 +348,37 @@ async function startMonitoring(portPath: string, baudRate: number) {
 }
 
 function stopMonitoring() {
+	info("Stopping monitoring - cleaning up resources");
+	
+	// Stop reconnect polling
 	if (reconnectTimer) {
 		clearInterval(reconnectTimer);
 		reconnectTimer = undefined;
 	}
+	
+	// Close and cleanup serial port
 	if (port) {
-		port.close();
+		try {
+			port.removeAllListeners(); // Remove all event listeners to prevent memory leaks
+			port.close();
+			info("Stopped monitoring and closed port");
+		} catch (err: any) {
+			info(`Error closing port: ${err.message}`);
+		}
 		port = undefined;
-		info(`Stopped monitoring port`);
 	}
+	
+	// Reset state
 	isMonitoring = false;
 	lastDeviceId = undefined;
+	
+	// Notify webview
+	const status: ConnectionStatusResponse = {
+		type: "connection-status",
+		connected: false,
+		message: "Stopped"
+	};
+	panel?.webview.postMessage(status);
 }
 
 function startReconnectPolling() {

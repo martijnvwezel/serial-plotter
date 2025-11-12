@@ -71,6 +71,12 @@ export class RawDataView extends LitElement {
     
     this._lineBuffer = [];
     this.requestUpdate();
+    
+    // Dispatch event to notify parent component to clear its buffer too
+    this.dispatchEvent(new CustomEvent('clear-buffer', {
+      bubbles: true,
+      composed: true
+    }));
   }
 
   updated(changedProperties: Map<string, unknown>) {

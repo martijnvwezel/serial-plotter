@@ -2,7 +2,7 @@
   "name": "muino-serial-plotter",
   "displayName": "muino-serial-plotter",
   "description": "Plot data received via a serial port in a dedicated advance pane with analytics on the signals.",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "repository": "https://github.com/martijnvwezel/serial-plotter",
   "publisher": "muino",
   "icon": "icon.png",
@@ -32,7 +32,10 @@
     "watch": "concurrently \"npm run copy-prebuilds\" \"npm run build-extension -- --watch --sourcemap=inline\" \"npm run build-webview -- --watch --sourcemap=inline\"",
     "copy-prebuilds": "cp -r node_modules/@serialport/bindings-cpp/prebuilds ./",
     "package": "npm run copy-prebuilds && vsce package",
-    "publish": "npm run copy-prebuilds && npm run vscode:prepublish && vsce publish"
+    "publish": "npm run copy-prebuilds && npm run vscode:prepublish && vsce publish",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui"
   },
   "devDependencies": {
     "@types/node": "24.9.1",
@@ -42,6 +45,7 @@
     "concurrently": "^9.2.1",
     "esbuild": "^0.25.11",
     "typescript": "5.9.3",
+    "vitest": "^4.0.8",
     "vsce": "^2.15.0"
   },
   "dependencies": {

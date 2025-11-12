@@ -155,8 +155,14 @@ export class PlotScreenFast extends LitElement {
   handleAutoScrollChange(e: Event) {
     const checkbox = e.target as HTMLInputElement;
     this.autoScroll = checkbox.checked;
-    const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
-    this.scrollOffset = maxSamples - this.visibleSamples / 2;
+    
+    // When enabling autoscroll, just update scroll position to show latest data
+    // but preserve the zoom level (visibleSamples)
+    if (this.autoScroll) {
+      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      this.scrollOffset = maxSamples - this.visibleSamples / 2;
+    }
+    
     this.renderData();
   }
 
