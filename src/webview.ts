@@ -192,20 +192,56 @@ class SerialPlotterApp extends LitElement {
 					   const message = ev.data;
 					   if (message.type == "ports-response") {
 							   const previouslySelected = this.selected;
+							   const previousDevice = this.selectedDevice;
+							   
 							   this.ports = [
 									   ...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
 									   { path: '/dev/fake_serial', manufacturer: 'Simulated' }
 							   ];
-							   if (previouslySelected) {
+							   
+							   // Try to match device by USB identifiers first (handles ttyACM0 -> ttyACM1 changes)
+							   if (previousDevice && previousDevice.vendorId && previousDevice.productId) {
+									   const matchingPort = this.ports.find((p) => 
+											   p.vendorId === previousDevice.vendorId && 
+											   p.productId === previousDevice.productId &&
+											   (!previousDevice.serialNumber || p.serialNumber === previousDevice.serialNumber)
+									   );
+									   if (matchingPort) {
+											   this.selected = matchingPort.path;
+											   this.selectedDevice = matchingPort;
+											   // If path changed, log it
+											   if (previouslySelected && previouslySelected !== matchingPort.path) {
+													   console.log(`Device port changed: ${previouslySelected} -> ${matchingPort.path}`);
+											   }
+									   } else if (previouslySelected) {
+											   // Fallback to path matching
+											   const pathMatch = this.ports.find((p) => p.path === previouslySelected);
+											   if (pathMatch) {
+													   this.selected = pathMatch.path;
+													   this.selectedDevice = pathMatch;
+											   } else {
+													   // Device not found, select first available
+													   this.selected = this.ports[0]?.path ?? undefined;
+													   this.selectedDevice = this.ports[0];
+											   }
+									   }
+							   } else if (previouslySelected) {
+									   // No USB ID info, try path matching
 									   const matchingPort = this.ports.find((p) => p.path === previouslySelected);
 									   if (matchingPort) {
 											   this.selected = matchingPort.path;
 											   this.selectedDevice = matchingPort;
+									   } else {
+											   // Port not found, select first available
+											   this.selected = this.ports[0]?.path ?? undefined;
+											   this.selectedDevice = this.ports[0];
 									   }
 							   }
+							   
+							   // If nothing selected yet, select first port
 							   if (!this.selected) {
-								   this.selected = this.ports[this.ports.length - 1]?.path ?? undefined;
-								   this.selectedDevice = this.ports[this.ports.length - 1];
+								   this.selected = this.ports[0]?.path ?? undefined;
+								   this.selectedDevice = this.ports[0];
 							   }
 					   }
 					   if (message.type == "error") {
@@ -273,7 +309,9 @@ class SerialPlotterApp extends LitElement {
 	}
 
 	handleRefresh() {
+		// Request fresh port list from extension
 		vscode.postMessage({ type: "ports" });
+		// The ports-response handler will automatically reselect the device by USB ID
 	}
 
 	// Calculate total buffer size in bytes
@@ -412,12 +450,9 @@ class SerialPlotterApp extends LitElement {
 
 		this.lineBuffer.push(...lines);
 
-		// Live update the raw-data-view if present
-		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
-		if (rawDataView) {
-			// Use addLine to properly trigger re-render with current timestamp setting
-			rawDataView.addLine(lines);
-		}
+		// Note: No need to call rawDataView.addLine() here because the render()
+		// method already sets .lineBuffer=${this.lineBuffer} which updates the view
+		// Calling addLine() here would cause duplication
 		const sidebar = document.querySelector('sidebar-view') as any;
 		if (sidebar) {
 			this.variableConfig = sidebar.getVariableConfig();
@@ -512,25 +547,25 @@ class SerialPlotterApp extends LitElement {
 				sidebar.setVariableConfig(this.variableConfig);
 				sidebar.setVariableMap(this.variableMap);
 				sidebar.render();
-			}
+		}
 
-			const plotScreen = document.querySelector("plot-screen") as any;
-			if (plotScreen) {
-				sidebar.setVariableConfig(this.variableConfig);
-				sidebar.updated(this.variableMap);
-				sidebar.render();
+		const plotScreen = document.querySelector("plot-screen") as any;
+		if (plotScreen) {
+			sidebar.setVariableConfig(this.variableConfig);
+			sidebar.updated(this.variableMap);
+			sidebar.render();
 
-				plotScreen.setVariableConfig(sidebar.getVariableConfig());
-				plotScreen.renderData();
-			}
-			const plotScreenFast = document.querySelector("plot-screen-fast") as any;
-			if (plotScreenFast) {
-				plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
-				plotScreenFast.renderData();
-			}
-	}
-
-	private parseHeaderLine(line: string) {
+			plotScreen.setVariableConfig(sidebar.getVariableConfig());
+			plotScreen.setData(this.variableMap); // Update the data
+			plotScreen.renderData();
+		}
+		const plotScreenFast = document.querySelector("plot-screen-fast") as any;
+		if (plotScreenFast) {
+			plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
+			plotScreenFast.setData(this.variableMap); // Update the data
+			plotScreenFast.renderData();
+		}
+	}	private parseHeaderLine(line: string) {
 		let line_low = line.toLowerCase();
 		const headerMatch = line_low.match(/^header\s+(.*)$/i);
 		if (!headerMatch) return;
@@ -787,8 +822,9 @@ private showToast(message: string) {
 			<div class="header-controls">
 			   <div class="selector-group">
 				  <span class="selector-label">Port</span>
-				  <select id="port" @focus="${this.handleRefresh}" @change="${this.handlePortChange}" ?disabled="${this.running}">
-					 ${map(
+				  <div style="display: flex; gap: 0.5rem; align-items: center;">
+					 <select id="port" @change="${this.handlePortChange}" ?disabled="${this.running}">
+						${map(
 			this.ports,
 			(p) => {
 				const displayName = p.path === '/dev/fake_serial' 
@@ -799,7 +835,18 @@ private showToast(message: string) {
 				return html`<option value="${p.path}" ?selected="${this.selected === p.path}">${displayName}</option>`;
 			}
 		)}
-				  </select>
+					 </select>
+					 <button 
+						class="toggle-btn" 
+						@click="${this.handleRefresh}" 
+						?disabled="${this.running}"
+						title="Refresh port list"
+						style="height: 2.4rem; padding: 0.5rem 0.75rem; min-width: auto;">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						   <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+						</svg>
+					 </button>
+				  </div>
 			   </div>
 			   <div class="selector-group">
 				  <span class="selector-label">Baud Rate</span>
@@ -862,10 +909,10 @@ private showToast(message: string) {
 				 Download CSV
 			   </button>
 
-			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="Switch view">
+			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="${this.screen === 'raw' ? 'Switch to graph visualization' : 'Switch to serial monitor (text view)'}">
 				  ${this.screen === 'raw'
-				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="8 12 12 16 16 12" stroke="#aaa" fill="none"/></svg> Raw`
-				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="#aaa" opacity="0.2"/><polyline points="16 12 12 8 8 12" stroke="#aaa" fill="none"/></svg> Plot`}
+				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="#aaa" stroke-width="2" fill="none"/></svg> Show Graph`
+				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke="#aaa" stroke-width="2" fill="none"/><line x1="7" y1="8" x2="17" y2="8" stroke="#aaa" stroke-width="2"/><line x1="7" y1="12" x2="17" y2="12" stroke="#aaa" stroke-width="2"/><line x1="7" y1="16" x2="17" y2="16" stroke="#aaa" stroke-width="2"/></svg> Show Serial Monitor`}
 			   </button>
 			   <button class="toggle-btn" @click="${this.handleAutoVariableUpdateToggle}" title="Toggle auto variable update">
 				  ${this.autoVariableUpdate

@@ -429,6 +429,24 @@ async function attemptReconnect() {
 	if (matchedPort) {
 		info(`Reconnecting to ${matchedPort.path}...`);
 		lastDeviceId.path = matchedPort.path; // Update path
+		
+		// Send updated port list to webview so it can update the dropdown
+		const response: PortsResponse = {
+			type: "ports-response",
+			ports: ports?.map((p) => {
+				const port: Port = {
+					path: p.path,
+					manufacturer: p.manufacturer,
+					vendorId: p.vendorId,
+					productId: p.productId,
+					serialNumber: p.serialNumber,
+					pnpId: p.pnpId
+				}
+				return port;
+			}) ?? []
+		};
+		panel?.webview.postMessage(response);
+		
 		await startMonitoring(matchedPort.path, lastBaudRate);
 	} else {
 		info("Device not found, will retry...");

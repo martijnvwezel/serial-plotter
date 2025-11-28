@@ -9,6 +9,7 @@ export class RawDataView extends LitElement {
   `;
 
   private _lineBuffer: string[] = [];
+  private _isProcessing = false;
 
   @property({ type: Boolean })
   autoScrollEnabled = true;
@@ -45,13 +46,31 @@ export class RawDataView extends LitElement {
   }
 
   set lineBuffer(val: string[]) {
-    this._lineBuffer = val;
-    this.requestUpdate();
-    this.updateComplete.then(() => {
-      if (this.autoScrollEnabled && this.preElement) {
-        this.preElement.scrollTop = this.preElement.scrollHeight;
-      }
-    });
+    // For large buffers, show loading state briefly
+    if (val.length > 5000 && this._lineBuffer.length === 0) {
+      this._isProcessing = true;
+      this.requestUpdate();
+      
+      // Process in next frame to show loading indicator
+      requestAnimationFrame(() => {
+        this._lineBuffer = val;
+        this._isProcessing = false;
+        this.requestUpdate();
+        this.updateComplete.then(() => {
+          if (this.autoScrollEnabled && this.preElement) {
+            this.preElement.scrollTop = this.preElement.scrollHeight;
+          }
+        });
+      });
+    } else {
+      this._lineBuffer = val;
+      this.requestUpdate();
+      this.updateComplete.then(() => {
+        if (this.autoScrollEnabled && this.preElement) {
+          this.preElement.scrollTop = this.preElement.scrollHeight;
+        }
+      });
+    }
   }
 
   handlePauseAutoScroll(e: Event) {
@@ -87,16 +106,51 @@ export class RawDataView extends LitElement {
   }
 
   render() {
-    // Process lines to optionally remove timestamps
-    let displayLines = this._lineBuffer;
-    if (!this.showTimestamp) {
-      displayLines = this._lineBuffer.map(line => {
-        // Remove timestamp pattern like [HH:MM:SS.mmm] from the start
-        return line.replace(/^\[[^\]]+\]\s*/, '');
-      });
+    // Show loading state for large buffers
+    if (this._isProcessing) {
+      return html`
+        <div id="root" class="raw-data-root">
+          <div class="raw-data-container">
+            <div style="display: flex; align-items: center; justify-content: center; height: 60vh; flex-direction: column; gap: 1rem;">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2">
+                <circle cx="12" cy="12" r="10" opacity="0.25"/>
+                <path d="M12 2 A10 10 0 0 1 22 12" opacity="1">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                </path>
+              </svg>
+              <span style="color: #aaa; font-size: 1.1rem;">Loading serial data...</span>
+            </div>
+          </div>
+        </div>
+      `;
     }
     
-    const displayText = displayLines.length === 0 ? 'connection...' : displayLines.join("\n");
+    // Process lines to optionally remove timestamps (optimized)
+    // For performance, limit display to last 10000 lines
+    const MAX_DISPLAY_LINES = 10000;
+    let linesToDisplay = this._lineBuffer.length > MAX_DISPLAY_LINES 
+      ? this._lineBuffer.slice(-MAX_DISPLAY_LINES) 
+      : this._lineBuffer;
+    
+    let displayText: string;
+    
+    if (linesToDisplay.length === 0) {
+      displayText = 'connection...';
+    } else if (!this.showTimestamp) {
+      // Optimized: process only when needed and use efficient string operations
+      displayText = linesToDisplay.map(line => 
+        line.replace(/^\[[^\]]+\]\s*/, '')
+      ).join("\n");
+    } else {
+      // Most efficient: just join without processing
+      displayText = linesToDisplay.join("\n");
+    }
+    
+    // Add indicator if lines were truncated
+    if (this._lineBuffer.length > MAX_DISPLAY_LINES) {
+      displayText = `... (showing last ${MAX_DISPLAY_LINES} of ${this._lineBuffer.length} lines)\n${displayText}`;
+    }
+    
     return html`
       <div id="root" class="raw-data-root">
         <div class="raw-data-container">
