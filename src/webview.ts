@@ -116,22 +116,6 @@ class SerialPlotterApp extends LitElement {
 		// 	sidebar_.setVariableConfig(this.variableConfig);
 		// }
 
-		// Forward to plot-screen
-		const plot = this.renderRoot.querySelector('plot-screen') as any;
-		if (plot && typeof plot.setVariableConfig === 'function') {
-		  	plot.setVariableConfig(this.variableConfig);
-		
-			// Also update line colors for each variable
-			for (const key of Object.keys(this.variableConfig)) {
-				const arr = this.variableMap.get(key);
-				if (arr && arr.length > 0 && typeof plot.updateLineColors === 'function') {
-					plot.updateLineColors(key, arr[arr.length - 1]);
-				}
-			}
-			plot.renderData();
-			plot.render();
-		}		
-
 		// Forward to all plot-screen-fast instances
 		const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
 		plotFastElements.forEach((plotFast: any) => {
@@ -475,11 +459,6 @@ class SerialPlotterApp extends LitElement {
 					sidebar.render();
 				}
 
-				const plotScreen = document.querySelector("plot-screen") as any;
-				if (plotScreen) {
-					plotScreen.setVariableConfig(sidebar.getVariableConfig());
-					plotScreen.renderData();
-				}
 				const plotScreenFast = document.querySelector("plot-screen-fast") as any;
 				if (plotScreenFast) {
 					plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
@@ -547,24 +526,14 @@ class SerialPlotterApp extends LitElement {
 				sidebar.setVariableConfig(this.variableConfig);
 				sidebar.setVariableMap(this.variableMap);
 				sidebar.render();
-		}
+			}
 
-		const plotScreen = document.querySelector("plot-screen") as any;
-		if (plotScreen) {
-			sidebar.setVariableConfig(this.variableConfig);
-			sidebar.updated(this.variableMap);
-			sidebar.render();
-
-			plotScreen.setVariableConfig(sidebar.getVariableConfig());
-			plotScreen.setData(this.variableMap); // Update the data
-			plotScreen.renderData();
-		}
-		const plotScreenFast = document.querySelector("plot-screen-fast") as any;
-		if (plotScreenFast) {
-			plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
-			plotScreenFast.setData(this.variableMap); // Update the data
-			plotScreenFast.renderData();
-		}
+			// Update plot screen with new data
+			const plotScreenFast = document.querySelector("plot-screen-fast") as any;
+			if (plotScreenFast && sidebar) {
+				plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
+				plotScreenFast.setData(this.variableMap); // setData already calls renderData()
+			}
 	}	private parseHeaderLine(line: string) {
 		let line_low = line.toLowerCase();
 		const headerMatch = line_low.match(/^header\s+(.*)$/i);
