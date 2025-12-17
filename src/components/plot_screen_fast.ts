@@ -412,7 +412,7 @@ export class PlotScreenFast extends LitElement {
 
     // Sanity check: if burstStartIndex is beyond new data length (e.g. cleared), reset it
     const newMaxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
-    if (this.burstStartIndex > newMaxSamples) {
+    if (this.burstStartIndex >= newMaxSamples) {
       this.burstStartIndex = 0;
     }
 
@@ -472,6 +472,7 @@ export class PlotScreenFast extends LitElement {
     
     if (changedProps.has('variableConfig')) {
       const config = this.variableConfig;
+      const oldConfig = changedProps.get('variableConfig') as Record<string, any> || {};
       
       // Update dataColors map
       const newColors = new Map<string, string>();
@@ -484,15 +485,25 @@ export class PlotScreenFast extends LitElement {
       if (this.selectedVariables.size === 0) {
         this.selectedVariables = new Set(Object.keys(config));
       } else {
-        // Remove any selected variables that are no longer in config
         const currentSelected = new Set(this.selectedVariables);
         let changed = false;
+
+        // 1. Remove variables that are no longer in config
         for (const key of currentSelected) {
           if (!config.hasOwnProperty(key)) {
             currentSelected.delete(key);
             changed = true;
           }
         }
+
+        // 2. Auto-select NEW variables (that weren't in oldConfig)
+        for (const key of Object.keys(config)) {
+          if (!oldConfig.hasOwnProperty(key)) {
+            currentSelected.add(key);
+            changed = true;
+          }
+        }
+
         if (changed) {
             this.selectedVariables = currentSelected;
         }
@@ -1065,9 +1076,22 @@ export class PlotScreenFast extends LitElement {
         
         <!-- Controls -->
         <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 0.5rem;">
-          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
+          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;" title="Automatically scrolls the graph to show the latest data points as they arrive.">
             <input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} ?disabled="${this.autoBurstFit}" />
             Auto-scroll X
+            <span style="
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: 14px;
+              height: 14px;
+              border-radius: 50%;
+              background: #444;
+              color: #aaa;
+              font-size: 10px;
+              font-weight: bold;
+              cursor: help;
+            ">?</span>
           </label>
           
           <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;" title="Automatically fits the graph to the latest burst of data. A new burst is detected if no data is received for 1 second.">
@@ -1103,7 +1127,7 @@ export class PlotScreenFast extends LitElement {
             @input=${this.handleVisibleSamplesChange}
             style="display: none; flex-grow: 1; max-width: 350px; outline: none;"
           />
-          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
+          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;" title="Automatically adjusts the Y-axis range to fit the minimum and maximum values of the visible data.">
             <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {
         this.autoScaleY = (e.target as HTMLInputElement).checked;
         if (this.autoScaleY) {
@@ -1113,6 +1137,19 @@ export class PlotScreenFast extends LitElement {
         this.renderData();
       }} />
             Auto-scale Y
+            <span style="
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: 14px;
+              height: 14px;
+              border-radius: 50%;
+              background: #444;
+              color: #aaa;
+              font-size: 10px;
+              font-weight: bold;
+              cursor: help;
+            ">?</span>
           </label>
         </div>
         

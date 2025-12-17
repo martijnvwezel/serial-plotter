@@ -82,6 +82,7 @@ class SerialPlotterApp extends LitElement {
 	@state()
 	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
+	private headerConfigured: boolean = false;
 
 	private colorPalette = [
 		"#f92672", // pink
@@ -111,6 +112,10 @@ class SerialPlotterApp extends LitElement {
 			sidebar.addEventListener('variable-config-changed', (e: any) => {
 
 				this.variableConfig = e.detail;
+				// If config is cleared (empty), reset headerConfigured flag
+				if (Object.keys(this.variableConfig).length === 0) {
+					this.headerConfigured = false;
+				}
 				// // check why needed extra cons
 				// const sidebar_ = document.querySelector('sidebar-view') as any;
 				// if (sidebar_ && sidebar_.setVariableConfig === 'function') {
@@ -491,7 +496,11 @@ class SerialPlotterApp extends LitElement {
 					const val = parseFloat(valStr);
 					let name = "";
 					const maxVars = Object.keys(this.variableConfig).length;
-					if (idx < maxVars) {
+					
+					// Only use existing variable names if they were explicitly configured via header
+					// OR if we are in auto-discovery mode but the number of values matches the number of variables
+					// (This prevents "Publishing" from capturing "12")
+					if (this.headerConfigured && idx < maxVars) {
 						name = this.variableOrder[idx];
 					} else {
 						name = 'line' + (idx + 1);
@@ -516,13 +525,15 @@ class SerialPlotterApp extends LitElement {
 			sidebar.render();
 		}
 
-		// Update plot screen with new data
-		const plotScreen = document.querySelector("plot-screen-fast") as any;
-		if (plotScreen && sidebar) {
-			plotScreen.setVariableConfig(sidebar.getVariableConfig());
-			plotScreen.setData(this.variableMap);
-			plotScreen.renderData();
-		}
+		// Update all plot screens with new data
+		const plotScreens = document.querySelectorAll("plot-screen-fast");
+		plotScreens.forEach((plotScreen: any) => {
+			if (sidebar) {
+				plotScreen.setVariableConfig(sidebar.getVariableConfig());
+				plotScreen.setData(this.variableMap);
+				plotScreen.renderData();
+			}
+		});
 	}
 
 	private updateVariable(name: string, value: number) {
@@ -558,6 +569,7 @@ class SerialPlotterApp extends LitElement {
 		let match;
 		this.variableConfig = {};
 		this.variableOrder = [];
+		this.headerConfigured = true;
 		let colorIdx = 0;
 		while ((match = regex.exec(rest)) !== null) {
 			const name = match[1];

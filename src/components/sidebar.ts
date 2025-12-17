@@ -3,6 +3,9 @@ import { LitElement, html } from "lit";
 import { property } from "lit/decorators.js";
 import { customElement } from "lit/decorators.js";
 
+// Define global variable injected by build process
+declare const __APP_VERSION__: string;
+
 @customElement("sidebar-view")
 export class SidebarView extends LitElement {
 
@@ -107,7 +110,7 @@ export class SidebarView extends LitElement {
         </ul>
         <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #333; text-align: center;">
           <div style="color: #666; font-size: 0.75rem; line-height: 1.4;">
-            <div style="margin-bottom: 0.3rem;">v2.1.7</div>
+            <div style="margin-bottom: 0.3rem;">${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'DEVELOPMENT'}</div>
             <div style="color: #888;">Made by <a href="https://muino.nl" target="_blank" rel="noopener noreferrer" style="color: #4a7fc1; font-weight: 600; text-decoration: none; transition: color 0.2s;" @mouseenter="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.color = '#6a9fd1'}" @mouseleave="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.color = '#4a7fc1'}">Muino</a></div>
           </div>
         </div>
