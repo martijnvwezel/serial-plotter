@@ -1169,7 +1169,7 @@ export class PlotScreenFast extends LitElement {
           <button @click=${this.handleAddPlot}
             id="addplot"
             style="align-self: flex-start; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.45rem 1.1rem; font-size: 1rem; font-weight: 600; letter-spacing: 0.03em; min-width: 8.5rem; cursor: pointer; transition: border 0.2s, box-shadow 0.2s;">
-            Add plot (experimental)
+            Add plot
           </button>
         </div>
       </div>
