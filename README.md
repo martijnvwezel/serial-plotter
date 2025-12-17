@@ -5,6 +5,8 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 ## ✨ Key Features
 
 - **Real-time plotting** with high-performance rendering
+- **Multiple Plot Windows** - create independent views for different variable groups
+- **Smart Burst Mode** - automatically focuses on the latest data burst
 - **Multiple data format support** - automatic and manual parsing
 - **Interactive plot controls** - zoom, pan, auto-scroll
 - **Variable management** - customize colors, names, and visibility  
@@ -192,7 +194,29 @@ usbipd bind --busid 1-13  # Replace with your device's bus ID
 usbipd attach --wsl --busid 1-13
 ```
 
-## 📝 Tips & Best Practices
+## � Advanced Features
+
+### Multiple Plot Windows
+Create multiple independent plot views to organize complex data streams:
+- Click **"Add Plot"** to create a duplicate of the current view
+- Click **"Add Plot (Experimental)"** to create an empty plot window
+- Assign different variables to different windows for focused analysis
+- Each window maintains its own zoom level and statistics
+
+### Smart Burst Mode
+Perfect for intermittent data streams or "bursty" sensors:
+- Enable **"Auto Burst Fit"** in the plot controls
+- The graph automatically zooms to show only the most recent data burst
+- Detects gaps in data transmission (default >1s) to identify new bursts
+- Prevents long periods of silence from compressing the visible data
+
+### Improved Zooming & Navigation
+- **Mouse Wheel**: Zoom in/out on the X-axis
+- **Shift + Mouse Wheel**: Zoom in/out on the Y-axis
+- **Drag**: Pan the view
+- **Double Click**: Reset view to fit all data
+
+## �📝 Tips & Best Practices
 
 1. **Start simple**: Begin with basic tab-separated values before using advanced features
 2. **Use headers**: Define variable names and colors for better visualization
