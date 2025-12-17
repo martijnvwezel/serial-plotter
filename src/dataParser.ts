@@ -25,23 +25,84 @@ export function parseDataLine(line: string): ParsedVariable[] {
 		return results;
 	}
 	
-	// Remove curly braces from the entire line
-	line = line.replace(/[{}]/g, '');
+	// Advanced Parsing Logic
+	// 1. Tokenize by whitespace, commas, semicolons
+	const tokens = line.split(/[ \t,;]+/).filter(Boolean);
 	
-	// Split by common delimiters, but keep key:value pairs together
-	// Match pattern: key: value (with optional whitespace)
-	const keyValueRegex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([+-]?(?:\d+\.?\d*|\d*\.\d+)(?:[eE][+-]?\d+)?)/g;
-	let match;
-	
-	while ((match = keyValueRegex.exec(line)) !== null) {
-		const key = match[1].trim();
-		const value = parseFloat(match[2]);
+	for (let i = 0; i < tokens.length; i++) {
+		let token = tokens[i];
 		
-		if (key && !isNaN(value)) {
-			results.push({
-				name: key,
-				value: value
-			});
+		// Case A: key:value (no space)
+		if (token.includes(':') && !token.endsWith(':') && !token.startsWith(':')) {
+			const idx = token.indexOf(':');
+			let key = token.substring(0, idx);
+			let valStr = token.substring(idx + 1);
+			
+			// Clean wrappers
+			key = key.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			valStr = valStr.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			
+			const val = parseFloat(valStr);
+			if (!isNaN(val)) {
+				results.push({ name: key, value: val });
+			}
+			continue;
+		}
+
+		// Case B: key: value (colon at end of key)
+		if (token.endsWith(':') && token.length > 1) {
+			if (i + 1 < tokens.length) {
+				let key = token.substring(0, token.length - 1);
+				let valStr = tokens[i+1];
+				
+				// Clean wrappers
+				key = key.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+				valStr = valStr.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+				
+				const val = parseFloat(valStr);
+				if (!isNaN(val)) {
+					results.push({ name: key, value: val });
+					i++; // Consume value
+					continue;
+				}
+			}
+		}
+
+		// Case C: key : value (colon is separate token)
+		if (i + 2 < tokens.length && tokens[i+1] === ':') {
+			 let key = token;
+			 let valStr = tokens[i+2];
+			 
+			 // Clean wrappers
+			 key = key.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			 valStr = valStr.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			 
+			 const val = parseFloat(valStr);
+			 if (!isNaN(val)) {
+				 results.push({ name: key, value: val });
+				 i += 2; // Consume colon and value
+				 continue;
+			 }
+		}
+
+		// Case D: key value (implicit, no colon)
+		if (i + 1 < tokens.length) {
+			let key = token;
+			let valStr = tokens[i+1];
+			
+			// Clean wrappers
+			key = key.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			valStr = valStr.replace(/^['"(\[{]+|['")\]}]+$/g, "");
+			
+			// Check if key is NOT a number (to avoid "123 456" being parsed as key=123)
+			if (isNaN(parseFloat(key))) {
+				const val = parseFloat(valStr);
+				if (!isNaN(val)) {
+					results.push({ name: key, value: val });
+					i++; // Consume value
+					continue;
+				}
+			}
 		}
 	}
 	

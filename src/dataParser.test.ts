@@ -301,6 +301,37 @@ describe('parseDataLine - README Format Examples', () => {
 			{ name: 'sensor3', value: 300 }
 		]);
 	});
+
+	it('should parse mixed key:value and implicit key value pairs', () => {
+		const line = 'd: 8866	l: 522	p: -113	time: 66720	pr: 480';
+		const result = parseDataLine(line);
+		expect(result).toEqual([
+			{ name: 'd', value: 8866 },
+			{ name: 'l', value: 522 },
+			{ name: 'p', value: -113 },
+			{ name: 'time', value: 66720 },
+			{ name: 'pr', value: 480 }
+		]);
+	});
+
+	it('should parse implicit key value pairs with text', () => {
+		const line = 'Publishing 22.81 to ripetap/28:CD:C1:14:1C:C3/temperature';
+		const result = parseDataLine(line);
+		expect(result).toEqual([
+			{ name: 'Publishing', value: 22.81 }
+		]);
+	});
+
+	it('should parse complex log line with mixed formats', () => {
+		const line = 'Auto-trigger: 491/3600 seconds elapsed (interval: 3600 sec, WiFi: 1, MQTT: 1)';
+		const result = parseDataLine(line);
+		expect(result).toEqual(expect.arrayContaining([
+			{ name: 'Auto-trigger', value: 491 },
+			{ name: 'interval', value: 3600 },
+			{ name: 'WiFi', value: 1 },
+			{ name: 'MQTT', value: 1 }
+		]));
+	});
 });
 
 describe('extractVariableNames', () => {

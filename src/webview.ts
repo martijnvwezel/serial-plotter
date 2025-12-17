@@ -5,6 +5,7 @@ import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
 import "./components/plot_screen_fast";
+import { parseDataLine } from "./dataParser";
 
 interface VSCodeApi {
 	postMessage(data: ProtocolRequests): void;
@@ -479,63 +480,33 @@ class SerialPlotterApp extends LitElement {
 				}
 				return;
 			}
-			// No header: update variables dynamically
+			// Check for positional data (all numbers)
 			const parts = line.split(/[ \t,;]+/).filter(Boolean);
-			// Only allow addin g new variables if variableConfig has fewer than parts.length
-			const maxVars = Object.keys(this.variableConfig).length;
-			let skip = false;
-			let name = "";
+			// Clean parts to check if they are numbers
+			const cleanParts = parts.map(p => p.replace(/^['"(\[{]+|['")\]}]+$/g, ""));
+			const allNumbers = cleanParts.length > 0 && cleanParts.every(p => !isNaN(parseFloat(p)));
 
-			parts.forEach((val: string, idx: number) => {
-				val = val.replace(/[{}]/g, ''); // remove { and } from val
-
-				let valueStr = val;
-
-				if (val.includes(':')) {
-					const split = val.split(':');
-					name = split[0];
-					valueStr = split[1]; // Get the value part
-					
-					if (this.autoVariableUpdate && !this.variableConfig[name]) {
-						const color = this.colorPalette[idx % this.colorPalette.length];
-						this.variableConfig[name] = { color, visablename: name };
-						this.variableOrder.push(name);
-						variables_updated = true;
-					}
-					// Don't skip, proceed to add data
-				} else {
-					// Positional data
-					if (maxVars < (idx + 1)) {
+			if (allNumbers) {
+				cleanParts.forEach((valStr, idx) => {
+					const val = parseFloat(valStr);
+					let name = "";
+					const maxVars = Object.keys(this.variableConfig).length;
+					if (idx < maxVars) {
+						name = this.variableOrder[idx];
+					} else {
 						name = 'line' + (idx + 1);
 					}
-					else {
-						name = this.variableOrder[idx]
-					}
-					if (this.autoVariableUpdate && !this.variableConfig[name]) {
-						const color = this.colorPalette[idx % this.colorPalette.length];
-						this.variableConfig[name] = { color, visablename: name };
-						this.variableOrder.push(name);
-						variables_updated = true;
-					}
-				}
-
-				// Add data to the variable
-				let arr = this.variableMap.get(name) ?? [];
-				const numVal = parseFloat(valueStr);
-				// Only add if it's a valid number
-				if (!isNaN(numVal)) {
-					arr.push(numVal);
-					this.variableMap.set(name, arr);
-				}
-
-				// Check buffer size and trim if necessary
-				this.currentBufferBytes += SerialPlotterApp.BYTES_PER_NUMBER;
-				if (this.currentBufferBytes > SerialPlotterApp.MAX_BUFFER_BYTES) {
-					this.trimBufferToLimit();
-				}
-
-			});
-
+					this.updateVariable(name, val);
+					variables_updated = true;
+				});
+			} else {
+				// Use robust parser
+				const parsedVars = parseDataLine(line);
+				parsedVars.forEach(pv => {
+					this.updateVariable(pv.name, pv.value);
+					variables_updated = true;
+				});
+			}
 		});
 
 
@@ -552,7 +523,31 @@ class SerialPlotterApp extends LitElement {
 			plotScreen.setData(this.variableMap);
 			plotScreen.renderData();
 		}
-	} private parseHeaderLine(line: string) {
+	}
+
+	private updateVariable(name: string, value: number) {
+		if (this.autoVariableUpdate && !this.variableConfig[name]) {
+			const idx = Object.keys(this.variableConfig).length;
+			const color = this.colorPalette[idx % this.colorPalette.length];
+			this.variableConfig[name] = { color, visablename: name };
+			this.variableOrder.push(name);
+		}
+
+		// Only add data if variable exists in config (it should if autoVariableUpdate is on, 
+		// or if it was already there. If autoVariableUpdate is off and var is new, we skip it)
+		if (this.variableConfig[name]) {
+			let arr = this.variableMap.get(name) ?? [];
+			arr.push(value);
+			this.variableMap.set(name, arr);
+
+			this.currentBufferBytes += SerialPlotterApp.BYTES_PER_NUMBER;
+			if (this.currentBufferBytes > SerialPlotterApp.MAX_BUFFER_BYTES) {
+				this.trimBufferToLimit();
+			}
+		}
+	}
+
+	private parseHeaderLine(line: string) {
 		let line_low = line.toLowerCase();
 		const headerMatch = line_low.match(/^header\s+(.*)$/i);
 		if (!headerMatch) return;
@@ -987,6 +982,7 @@ class SerialPlotterApp extends LitElement {
 				? html`<raw-data-view id="rawdataview"
 					 .autoScrollEnabled=${this.autoScrollEnabled}
 					 .hideData=${this.hideData}
+					 .lineBuffer=${this.lineBuffer}
 					 ></raw-data-view>`
 				: this.plotInstances.length > 0 ? this.plotInstances.map(id => html`
 					<plot-screen-fast 

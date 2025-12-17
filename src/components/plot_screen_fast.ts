@@ -393,33 +393,8 @@ export class PlotScreenFast extends LitElement {
   // Sync selectedVariables with variableConfig keys
   public setVariableConfig(config: Record<string, { color: string; visablename: string }>) {
     this.variableConfig = config;
-    // Remove data for variables that are no longer in config
-    for (const key of Array.from(this.data.keys())) {
-      if (!config.hasOwnProperty(key)) {
-        this.data.delete(key);
-      }
-    }
-    // Update dataColors map
-    const newColors = new Map<string, string>();
-    for (const [name, obj] of Object.entries(config)) {
-      newColors.set(name, obj.color);
-    }
-    this.dataColors = newColors;
-
-    // If no variables have been selected yet (graph is empty), auto-select all
-    if (this.selectedVariables.size === 0) {
-      this.selectedVariables = new Set(Object.keys(config));
-    } else {
-      // Remove any selected variables that are no longer in config
-      const currentSelected = new Set(this.selectedVariables);
-      for (const key of currentSelected) {
-        if (!config.hasOwnProperty(key)) {
-          this.selectedVariables.delete(key);
-        }
-      }
-    }
-    // No need for requestUpdate() - @state() properties auto-trigger re-render
     this.renderData();
+    // Logic moved to updated() to handle property changes
   }
 
   // Allow external update of data (for reactivity)
@@ -485,15 +460,56 @@ export class PlotScreenFast extends LitElement {
     this.plotContainer = undefined;
     this.canvasDiv = undefined;
 
-    // Clear data to free memory
-    this.data.clear();
-    this.dataColors.clear();
-    this.selectedVariables.clear();
+    // Do NOT clear data/colors/selection here, as it might be shared with parent
+    // or needed when switching back to this view
+    // this.data.clear();
+    // this.dataColors.clear();
+    // this.selectedVariables.clear();
   }
 
   updated(changedProps: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
     super.updated(changedProps);
-    // DON'T auto-enable variables - only show what's been explicitly dragged in
+    
+    if (changedProps.has('variableConfig')) {
+      const config = this.variableConfig;
+      
+      // Update dataColors map
+      const newColors = new Map<string, string>();
+      for (const [name, obj] of Object.entries(config)) {
+        newColors.set(name, obj.color);
+      }
+      this.dataColors = newColors;
+
+      // If no variables have been selected yet (graph is empty), auto-select all
+      if (this.selectedVariables.size === 0) {
+        this.selectedVariables = new Set(Object.keys(config));
+      } else {
+        // Remove any selected variables that are no longer in config
+        const currentSelected = new Set(this.selectedVariables);
+        let changed = false;
+        for (const key of currentSelected) {
+          if (!config.hasOwnProperty(key)) {
+            currentSelected.delete(key);
+            changed = true;
+          }
+        }
+        if (changed) {
+            this.selectedVariables = currentSelected;
+        }
+      }
+    }
+
+    // If data or config changed, re-render the PixiJS graph
+    if (changedProps.has('data') || 
+        changedProps.has('variableConfig') || 
+        changedProps.has('visibleSamples') || 
+        changedProps.has('autoScroll') || 
+        changedProps.has('autoScaleY') || 
+        changedProps.has('yMin') || 
+        changedProps.has('yMax') || 
+        changedProps.has('autoBurstFit')) {
+      this.renderData();
+    }
   }
 
   async firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -715,6 +731,11 @@ export class PlotScreenFast extends LitElement {
       // If manual mode but yMin/yMax not set, initialize to data range
       this.yMin = min;
       this.yMax = max;
+    }
+
+    // double check yMin/yMax that max is always higher then min 
+    if (this.yMax <= this.yMin) {
+      this.yMax = this.yMin + PlotScreenFast.MIN_Y_HEIGHT;
     }
 
     const yMin = this.yMin ?? min;
@@ -1046,7 +1067,7 @@ export class PlotScreenFast extends LitElement {
         <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 0.5rem;">
           <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
             <input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} ?disabled="${this.autoBurstFit}" />
-            Auto-scroll
+            Auto-scroll X
           </label>
           
           <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;" title="Automatically fits the graph to the latest burst of data. A new burst is detected if no data is received for 1 second.">
