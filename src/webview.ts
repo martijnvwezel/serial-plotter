@@ -1,5 +1,5 @@
 
-import { LitElement, html, nothing } from "lit";
+import { LitElement, html, nothing, PropertyValueMap } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { map } from "lit/directives/map.js";
 import "./components/raw_data_view";
@@ -14,16 +14,16 @@ const vscode = acquireVsCodeApi() as VSCodeApi;
 
 @customElement("serial-plotter-app")
 class SerialPlotterApp extends LitElement {
-  constructor() {
-	super();
-	this.downloadCSV = this.downloadCSV.bind(this);
-  }
+	constructor() {
+		super();
+		this.downloadCSV = this.downloadCSV.bind(this);
+	}
 	@state()
 	ports: Port[] = [];
 
 	@state()
 	selected: string | undefined;
-	
+
 	@state()
 	selectedDevice: Port | undefined;
 
@@ -32,33 +32,33 @@ class SerialPlotterApp extends LitElement {
 
 	@state()
 	error?: string;
-	
+
 	@state()
 	connectionStatus?: string;
 
-  @state()
-  private screen: 'raw' | 'plot' = 'plot';
-  @state()
-  private fastPlot: boolean = true;
-  
-  @state()
-  private plotInstances: number[] = [0]; // Track multiple plot instances
-  
-  @state()
-  private sidebarVisible: boolean = true;
+	@state()
+	private screen: 'raw' | 'plot' = 'plot';
+	@state()
+	private fastPlot: boolean = true;
+
+	@state()
+	private plotInstances: number[] = [0]; // Track multiple plot instances
+
+	@state()
+	private sidebarVisible: boolean = true;
 
 	@state()
 	autoVariableUpdate: boolean = true;
-	
+
 	@state()
 	commandInput: string = "";
-	
+
 	@state()
 	commandHistory: string[] = [];
-	
+
 	@state()
 	isRepeating: boolean = false;
-	
+
 	private repeatTimer: number | null = null;
 	private repeatInterval: number = 1000; // 1 second default
 
@@ -82,79 +82,79 @@ class SerialPlotterApp extends LitElement {
 	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
 
-  private colorPalette = [
-	"#f92672", // pink
-	"#a6e22e", // green
-	"#66d9ef", // cyan
-	"#fd971f", // orange
-	"#e6db74", // yellow
-	"#9e6ffe", // purple
-	"#cc6633", // brown
-	"#f8f8f2", // white
-	// "#75715e", // comment gray
-	"#ae81ff", // violet
-	"#f4bf75", // gold
-	"#cfcfc2", // light gray
-	// "#272822", // background dark
-	// "#1e0010", // dark purple
-	// "#465457", // blue gray
-	"#b6e354"  // lime
-  ];
+	private colorPalette = [
+		"#f92672", // pink
+		"#a6e22e", // green
+		"#66d9ef", // cyan
+		"#fd971f", // orange
+		"#e6db74", // yellow
+		"#9e6ffe", // purple
+		"#cc6633", // brown
+		"#f8f8f2", // white
+		// "#75715e", // comment gray
+		"#ae81ff", // violet
+		"#f4bf75", // gold
+		"#cfcfc2", // light gray
+		// "#272822", // background dark
+		// "#1e0010", // dark purple
+		// "#465457", // blue gray
+		"#b6e354"  // lime
+	];
 
-  firstUpdated() {
-	// Listen for a custom event from sidebar-view
-	const sidebar = this.renderRoot.querySelector('sidebar-view');
-	if (sidebar) {
-		console.log("Sidebar found, adding event listener");
-		
-	  sidebar.addEventListener('variable-config-changed', (e: any) => {
-		
-		this.variableConfig = e.detail;
-		// // check why needed extra cons
-		// const sidebar_ = document.querySelector('sidebar-view') as any;
-		// if (sidebar_ && sidebar_.setVariableConfig === 'function') {
-		// 	sidebar_.setVariableConfig(this.variableConfig);
-		// }
+	firstUpdated() {
+		// Listen for a custom event from sidebar-view
+		const sidebar = this.renderRoot.querySelector('sidebar-view');
+		if (sidebar) {
+			console.log("Sidebar found, adding event listener");
 
-		// Forward to all plot-screen-fast instances
-		const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
-		plotFastElements.forEach((plotFast: any) => {
-		  if (plotFast && typeof plotFast.setVariableConfig === 'function') {
-			plotFast.setVariableConfig(this.variableConfig);
-		  }
+			sidebar.addEventListener('variable-config-changed', (e: any) => {
+
+				this.variableConfig = e.detail;
+				// // check why needed extra cons
+				// const sidebar_ = document.querySelector('sidebar-view') as any;
+				// if (sidebar_ && sidebar_.setVariableConfig === 'function') {
+				// 	sidebar_.setVariableConfig(this.variableConfig);
+				// }
+
+				// Forward to all plot-screen-fast instances
+				const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
+				plotFastElements.forEach((plotFast: any) => {
+					if (plotFast && typeof plotFast.setVariableConfig === 'function') {
+						plotFast.setVariableConfig(this.variableConfig);
+					}
+				});
+			});
+		}
+
+		// Listen for add-plot events from any plot instance
+		this.addEventListener('add-plot', () => {
+			this.handleAddPlot();
 		});
-	  });
-	}
-	
-	// Listen for add-plot events from any plot instance
-	this.addEventListener('add-plot', () => {
-	  this.handleAddPlot();
-	});
-	
-	// Listen for clear-buffer events from raw-data-view
-	this.addEventListener('clear-buffer', () => {
-	  this.handleClearBuffer();
-	});
-  }
 
-  private handleAddPlot() {
-	// Add a new plot instance with a unique ID
-	const newId = Math.max(...this.plotInstances, 0) + 1;
-	this.plotInstances = [...this.plotInstances, newId];
-  }
-  
-  private handleClearBuffer() {
-	console.log("Clearing main line buffer");
-	this.lineBuffer = [];
-	
-	// Also clear the raw-data-view's internal buffer
-	const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
-	if (rawDataView) {
-		rawDataView.lineBuffer = [];
+		// Listen for clear-buffer events from raw-data-view
+		this.addEventListener('clear-buffer', () => {
+			this.handleClearBuffer();
+		});
 	}
-	
-	this.requestUpdate();
-  }
+
+	private handleAddPlot() {
+		// Add a new plot instance with a unique ID
+		const newId = Math.max(...this.plotInstances, 0) + 1;
+		this.plotInstances = [...this.plotInstances, newId];
+	}
+
+	private handleClearBuffer() {
+		console.log("Clearing main line buffer");
+		this.lineBuffer = [];
+
+		// Also clear the raw-data-view's internal buffer
+		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
+		if (rawDataView) {
+			rawDataView.lineBuffer = [];
+		}
+
+		this.requestUpdate();
+	}
 
 
 	private stopped = false;
@@ -168,87 +168,87 @@ class SerialPlotterApp extends LitElement {
 		this.load();
 	}
 
-	   private _messageCallback?: (ev: { data: ProtocolResponse }) => void;
+	private _messageCallback?: (ev: { data: ProtocolResponse }) => void;
 
-	   load() {
-			   // Always add a fake port option
-			   this._messageCallback = (ev: { data: ProtocolResponse }) => {
-					   const message = ev.data;
-					   if (message.type == "ports-response") {
-							   const previouslySelected = this.selected;
-							   const previousDevice = this.selectedDevice;
-							   
-							   this.ports = [
-									   ...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
-									   { path: '/dev/fake_serial', manufacturer: 'Simulated' }
-							   ];
-							   
-							   // Try to match device by USB identifiers first (handles ttyACM0 -> ttyACM1 changes)
-							   if (previousDevice && previousDevice.vendorId && previousDevice.productId) {
-									   const matchingPort = this.ports.find((p) => 
-											   p.vendorId === previousDevice.vendorId && 
-											   p.productId === previousDevice.productId &&
-											   (!previousDevice.serialNumber || p.serialNumber === previousDevice.serialNumber)
-									   );
-									   if (matchingPort) {
-											   this.selected = matchingPort.path;
-											   this.selectedDevice = matchingPort;
-											   // If path changed, log it
-											   if (previouslySelected && previouslySelected !== matchingPort.path) {
-													   console.log(`Device port changed: ${previouslySelected} -> ${matchingPort.path}`);
-											   }
-									   } else if (previouslySelected) {
-											   // Fallback to path matching
-											   const pathMatch = this.ports.find((p) => p.path === previouslySelected);
-											   if (pathMatch) {
-													   this.selected = pathMatch.path;
-													   this.selectedDevice = pathMatch;
-											   } else {
-													   // Device not found, select first available
-													   this.selected = this.ports[0]?.path ?? undefined;
-													   this.selectedDevice = this.ports[0];
-											   }
-									   }
-							   } else if (previouslySelected) {
-									   // No USB ID info, try path matching
-									   const matchingPort = this.ports.find((p) => p.path === previouslySelected);
-									   if (matchingPort) {
-											   this.selected = matchingPort.path;
-											   this.selectedDevice = matchingPort;
-									   } else {
-											   // Port not found, select first available
-											   this.selected = this.ports[0]?.path ?? undefined;
-											   this.selectedDevice = this.ports[0];
-									   }
-							   }
-							   
-							   // If nothing selected yet, select first port
-							   if (!this.selected) {
-								   this.selected = this.ports[0]?.path ?? undefined;
-								   this.selectedDevice = this.ports[0];
-							   }
-					   }
-					   if (message.type == "error") {
-							   if (this.running) {
-									   this.handleStartStop();
-							   }
-							   this.error = message.text;
-					   }
-					   if (message.type == "connection-status") {
-						   if (message.connected) {
-							   this.connectionStatus = message.message || "Connected";
-							   this.error = undefined;
-						   } else {
-							   this.connectionStatus = message.message || "Disconnected";
-						   }
-					   }
-					   if (message.type == "data") {
-							this.handleSerialData(message.text);
-					   }
-			   };
-			   window.addEventListener("message", this._messageCallback);
-			   vscode.postMessage({ type: "ports" });
-	   }
+	load() {
+		// Always add a fake port option
+		this._messageCallback = (ev: { data: ProtocolResponse }) => {
+			const message = ev.data;
+			if (message.type == "ports-response") {
+				const previouslySelected = this.selected;
+				const previousDevice = this.selectedDevice;
+
+				this.ports = [
+					...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
+					{ path: '/dev/fake_serial', manufacturer: 'Simulated' }
+				];
+
+				// Try to match device by USB identifiers first (handles ttyACM0 -> ttyACM1 changes)
+				if (previousDevice && previousDevice.vendorId && previousDevice.productId) {
+					const matchingPort = this.ports.find((p) =>
+						p.vendorId === previousDevice.vendorId &&
+						p.productId === previousDevice.productId &&
+						(!previousDevice.serialNumber || p.serialNumber === previousDevice.serialNumber)
+					);
+					if (matchingPort) {
+						this.selected = matchingPort.path;
+						this.selectedDevice = matchingPort;
+						// If path changed, log it
+						if (previouslySelected && previouslySelected !== matchingPort.path) {
+							console.log(`Device port changed: ${previouslySelected} -> ${matchingPort.path}`);
+						}
+					} else if (previouslySelected) {
+						// Fallback to path matching
+						const pathMatch = this.ports.find((p) => p.path === previouslySelected);
+						if (pathMatch) {
+							this.selected = pathMatch.path;
+							this.selectedDevice = pathMatch;
+						} else {
+							// Device not found, select first available
+							this.selected = this.ports[0]?.path ?? undefined;
+							this.selectedDevice = this.ports[0];
+						}
+					}
+				} else if (previouslySelected) {
+					// No USB ID info, try path matching
+					const matchingPort = this.ports.find((p) => p.path === previouslySelected);
+					if (matchingPort) {
+						this.selected = matchingPort.path;
+						this.selectedDevice = matchingPort;
+					} else {
+						// Port not found, select first available
+						this.selected = this.ports[0]?.path ?? undefined;
+						this.selectedDevice = this.ports[0];
+					}
+				}
+
+				// If nothing selected yet, select first port
+				if (!this.selected) {
+					this.selected = this.ports[0]?.path ?? undefined;
+					this.selectedDevice = this.ports[0];
+				}
+			}
+			if (message.type == "error") {
+				if (this.running) {
+					this.handleStartStop();
+				}
+				this.error = message.text;
+			}
+			if (message.type == "connection-status") {
+				if (message.connected) {
+					this.connectionStatus = message.message || "Connected";
+					this.error = undefined;
+				} else {
+					this.connectionStatus = message.message || "Disconnected";
+				}
+			}
+			if (message.type == "data") {
+				this.handleSerialData(message.text);
+			}
+		};
+		window.addEventListener("message", this._messageCallback);
+		vscode.postMessage({ type: "ports" });
+	}
 
 	handleFakeData() {
 		this.error = "";
@@ -318,19 +318,19 @@ class SerialPlotterApp extends LitElement {
 		// Calculate how many samples to remove
 		const bytesToRemove = currentSize - SerialPlotterApp.MAX_BUFFER_BYTES;
 		const samplesToRemove = Math.ceil(bytesToRemove / SerialPlotterApp.BYTES_PER_NUMBER);
-		
+
 		// Remove samples equally from all variables
 		const numVariables = this.variableMap.size;
 		if (numVariables === 0) return;
-		
+
 		const samplesPerVariable = Math.ceil(samplesToRemove / numVariables);
-		
+
 		for (const [key, arr] of this.variableMap.entries()) {
 			if (arr.length > samplesPerVariable) {
 				this.variableMap.set(key, arr.slice(samplesPerVariable));
 			}
 		}
-		
+
 		this.currentBufferBytes = this.calculateBufferSize();
 		this.samplesExceeded = true;
 	}
@@ -347,12 +347,12 @@ class SerialPlotterApp extends LitElement {
 			// this.samplesExceeded = false;
 			// Add message event listener if not present
 			if (this._messageCallback) {
-					window.addEventListener("message", this._messageCallback);
+				window.addEventListener("message", this._messageCallback);
 			}
 			if (this.selected === '/dev/fake_serial') {
-					this.handleFakeData();
+				this.handleFakeData();
 			} else {
-					this.startSerial();
+				this.startSerial();
 			}
 		} else {
 			// Clear fake data timer if running
@@ -392,30 +392,30 @@ class SerialPlotterApp extends LitElement {
 		vscode.postMessage(request);
 	}
 
-   stopSerial() {
-			const request: StopMonitorPortRequest = {
-					type: "stop-monitor"
-			};
-			vscode.postMessage(request);
-			// Remove all 'message' event listeners (defensive, in case of duplicates)
-			// Remove the known callback
-			if (this._messageCallback) {
-				window.removeEventListener("message", this._messageCallback);
+	stopSerial() {
+		const request: StopMonitorPortRequest = {
+			type: "stop-monitor"
+		};
+		vscode.postMessage(request);
+		// Remove all 'message' event listeners (defensive, in case of duplicates)
+		// Remove the known callback
+		if (this._messageCallback) {
+			window.removeEventListener("message", this._messageCallback);
+		}
+		// Defensive: remove any other 'message' listeners that might have been added
+		// (This is a workaround for possible duplicates; in a real app, track all added callbacks)
+		// getEventListeners is only available in Chromium DevTools, not in production browsers
+		// So we must guard against its absence
+		if (typeof window !== 'undefined' && typeof (window as any).getEventListeners === 'function') {
+			const listeners = (window as any).getEventListeners(window).message;
+			if (listeners) {
+				for (const l of listeners) {
+					window.removeEventListener("message", l.listener);
+				}
 			}
-	  // Defensive: remove any other 'message' listeners that might have been added
-	  // (This is a workaround for possible duplicates; in a real app, track all added callbacks)
-	  // getEventListeners is only available in Chromium DevTools, not in production browsers
-	  // So we must guard against its absence
-	  if (typeof window !== 'undefined' && typeof (window as any).getEventListeners === 'function') {
-		  const listeners = (window as any).getEventListeners(window).message;
-		  if (listeners) {
-			  for (const l of listeners) {
-				  window.removeEventListener("message", l.listener);
-			  }
-		  }
-	  }
-			this.stopped = true;
-   }
+		}
+		this.stopped = true;
+	}
 
 	getBaudRate(): number {
 		const baudSelect = this.querySelector<HTMLInputElement>("#baud");
@@ -434,9 +434,12 @@ class SerialPlotterApp extends LitElement {
 
 		this.lineBuffer.push(...lines);
 
-		// Note: No need to call rawDataView.addLine() here because the render()
-		// method already sets .lineBuffer=${this.lineBuffer} which updates the view
-		// Calling addLine() here would cause duplication
+		const rawDataView = document.querySelector('raw-data-view') as any;
+		if (rawDataView) {
+			rawDataView.lineBuffer = this.lineBuffer;		
+			rawDataView.render();
+		}
+
 		const sidebar = document.querySelector('sidebar-view') as any;
 		if (sidebar) {
 			this.variableConfig = sidebar.getVariableConfig();
@@ -451,7 +454,7 @@ class SerialPlotterApp extends LitElement {
 			if (headerMatch) {
 				this.parseHeaderLine(line);
 				console.log("FOUND header this is now config", this.variableConfig);
-				
+
 				this.variableMap = new Map();
 				const sidebar = document.querySelector('sidebar-view') as any;
 				if (sidebar) {
@@ -459,10 +462,10 @@ class SerialPlotterApp extends LitElement {
 					sidebar.render();
 				}
 
-				const plotScreenFast = document.querySelector("plot-screen-fast") as any;
-				if (plotScreenFast) {
-					plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
-					plotScreenFast.renderData();
+				const plotScreen = document.querySelector("plot-screen-fast") as any;
+				if (plotScreen) {
+					plotScreen.setVariableConfig(sidebar.getVariableConfig());
+					plotScreen.renderData();
 				}
 				return;
 			}
@@ -472,14 +475,14 @@ class SerialPlotterApp extends LitElement {
 			const maxVars = Object.keys(this.variableConfig).length;
 			let skip = false;
 			let name = "";
-			
+
 			parts.forEach((val: string, idx: number) => {
 				val = val.replace(/[{}]/g, ''); // remove { and } from val
-				
-				
-				
+
+
+
 				if (val.includes(':')) {
-					name = val.split(':')[0];					
+					name = val.split(':')[0];
 					if (this.autoVariableUpdate && !this.variableConfig[name]) {
 						const color = this.colorPalette[idx % this.colorPalette.length];
 						this.variableConfig[name] = { color, visablename: name };
@@ -489,28 +492,25 @@ class SerialPlotterApp extends LitElement {
 					skip = true;
 					return
 				}
-				
-							
-					if (maxVars < (idx + 1)) {
-						name = 'line' + (idx + 1);
-					}
-					else{
-						name = this.variableOrder[idx]
-					}
-					if (this.autoVariableUpdate && !this.variableConfig[name]) {
-						const color = this.colorPalette[idx % this.colorPalette.length];
-						this.variableConfig[name] = { color, visablename: name };
-						this.variableOrder.push(name);
-						variables_updated = true;
-					}
 
-				// name = this.variableOrder[idx] || `line${idx + 1}`;
-				// Add data to the variable
+
+				if (maxVars < (idx + 1)) {
+					name = 'line' + (idx + 1);
+				}
+				else {
+					name = this.variableOrder[idx]
+				}
+				if (this.autoVariableUpdate && !this.variableConfig[name]) {
+					const color = this.colorPalette[idx % this.colorPalette.length];
+					this.variableConfig[name] = { color, visablename: name };
+					this.variableOrder.push(name);
+					variables_updated = true;
+				}			// Add data to the variable
 				let arr = this.variableMap.get(name) ?? [];
 				const numVal = parseFloat(val);
 				arr.push(!isNaN(numVal) ? numVal : 0);
 				this.variableMap.set(name, arr);
-				
+
 				// Check buffer size and trim if necessary
 				this.currentBufferBytes += SerialPlotterApp.BYTES_PER_NUMBER;
 				if (this.currentBufferBytes > SerialPlotterApp.MAX_BUFFER_BYTES) {
@@ -518,23 +518,24 @@ class SerialPlotterApp extends LitElement {
 				}
 
 			});
-		
+
 		});
 
 
-			if (sidebar && variables_updated) {
-				sidebar.setVariableConfig(this.variableConfig);
-				sidebar.setVariableMap(this.variableMap);
-				sidebar.render();
-			}
+		if (sidebar && variables_updated) {
+			sidebar.setVariableConfig(this.variableConfig);
+			sidebar.setVariableMap(this.variableMap);
+			sidebar.render();
+		}
 
-			// Update plot screen with new data
-			const plotScreenFast = document.querySelector("plot-screen-fast") as any;
-			if (plotScreenFast && sidebar) {
-				plotScreenFast.setVariableConfig(sidebar.getVariableConfig());
-				plotScreenFast.setData(this.variableMap); // setData already calls renderData()
-			}
-	}	private parseHeaderLine(line: string) {
+		// Update plot screen with new data
+		const plotScreen = document.querySelector("plot-screen-fast") as any;
+		if (plotScreen && sidebar) {
+			plotScreen.setVariableConfig(sidebar.getVariableConfig());
+			plotScreen.setData(this.variableMap);
+			plotScreen.renderData();
+		}
+	} private parseHeaderLine(line: string) {
 		let line_low = line.toLowerCase();
 		const headerMatch = line_low.match(/^header\s+(.*)$/i);
 		if (!headerMatch) return;
@@ -544,42 +545,42 @@ class SerialPlotterApp extends LitElement {
 		const regex = /(\w+):\s*(?:'([^']+)'|"([^"]+)"|(#\w+)|((?:rgba?|RGBA?)\s*\([^)]*\))|([a-zA-Z]+))/g;
 		let match;
 		this.variableConfig = {};
-		this.variableOrder = []; 
+		this.variableOrder = [];
 		let colorIdx = 0;
-	   while ((match = regex.exec(rest)) !== null) {
-		   const name = match[1];
-		   // Prefer single-quoted, then double-quoted, then hex, then rgb/rgba, then named
-		   let color =
-			   match[2] || // single-quoted
-			   match[3] || // double-quoted
-			   match[4] || // #hex
-			   match[5] || // rgb/rgba
-			   match[6] || // named
-			   this.colorPalette[colorIdx % this.colorPalette.length];
+		while ((match = regex.exec(rest)) !== null) {
+			const name = match[1];
+			// Prefer single-quoted, then double-quoted, then hex, then rgb/rgba, then named
+			let color =
+				match[2] || // single-quoted
+				match[3] || // double-quoted
+				match[4] || // #hex
+				match[5] || // rgb/rgba
+				match[6] || // named
+				this.colorPalette[colorIdx % this.colorPalette.length];
 
-		   if (color) {
-			   color = color.trim();
-			   // Normalize rgb/rgba: remove spaces, fix double commas, clamp to 4 components
-			   const rgbRegex = /^rgba?\s*\(([^)]+)\)$/i;
-			   const rgbMatch = color.match(rgbRegex);
-			   if (rgbMatch) {
-				   let comps = rgbMatch[1].split(',').map(s => s.trim()).filter(s => s !== "");
-				   comps = comps.slice(0, 4);
-				   if (comps.length === 3) {
-					   color = `rgb(${comps.join(",")})`;
-				   } else if (comps.length === 4) {
-					   color = `rgba(${comps.join(",")})`;
-				   } else {
-					   color = this.colorPalette[colorIdx % this.colorPalette.length];
-				   }
-			   }
-		   } else {
-			   color = this.colorPalette[colorIdx % this.colorPalette.length];
-		   }
-		   this.variableConfig[name] = { color, visablename: name };
-		   this.variableOrder.push(name);
-		   colorIdx++;
-	   }
+			if (color) {
+				color = color.trim();
+				// Normalize rgb/rgba: remove spaces, fix double commas, clamp to 4 components
+				const rgbRegex = /^rgba?\s*\(([^)]+)\)$/i;
+				const rgbMatch = color.match(rgbRegex);
+				if (rgbMatch) {
+					let comps = rgbMatch[1].split(',').map(s => s.trim()).filter(s => s !== "");
+					comps = comps.slice(0, 4);
+					if (comps.length === 3) {
+						color = `rgb(${comps.join(",")})`;
+					} else if (comps.length === 4) {
+						color = `rgba(${comps.join(",")})`;
+					} else {
+						color = this.colorPalette[colorIdx % this.colorPalette.length];
+					}
+				}
+			} else {
+				color = this.colorPalette[colorIdx % this.colorPalette.length];
+			}
+			this.variableConfig[name] = { color, visablename: name };
+			this.variableOrder.push(name);
+			colorIdx++;
+		}
 	}
 
 	private handleScreenToggle() {
@@ -589,37 +590,37 @@ class SerialPlotterApp extends LitElement {
 	private handleAutoVariableUpdateToggle() {
 		this.autoVariableUpdate = !this.autoVariableUpdate;
 	}
-	
+
 	private handleSidebarToggle() {
 		this.sidebarVisible = !this.sidebarVisible;
 	}
-	
+
 	private handleReconnect() {
 		vscode.postMessage({ type: "reconnect" });
 	}
-	
+
 	private handleCommandInput(e: Event) {
 		const input = e.target as HTMLInputElement;
 		this.commandInput = input.value;
 	}
-	
+
 	private handleSendCommand() {
 		if (!this.commandInput.trim()) return;
-		
-		vscode.postMessage({ 
+
+		vscode.postMessage({
 			type: "send-command",
 			command: this.commandInput
 		});
-		
+
 		// Add to history if not already present
 		if (!this.commandHistory.includes(this.commandInput)) {
 			this.commandHistory = [this.commandInput, ...this.commandHistory].slice(0, 10); // Keep last 10 commands
 		}
 	}
-	
+
 	private handleRepeatToggle() {
 		this.isRepeating = !this.isRepeating;
-		
+
 		if (this.isRepeating) {
 			// Start repeating
 			this.handleSendCommand(); // Send immediately
@@ -634,11 +635,11 @@ class SerialPlotterApp extends LitElement {
 			}
 		}
 	}
-	
+
 	private handleRepeatIntervalChange(e: Event) {
 		const input = e.target as HTMLInputElement;
 		this.repeatInterval = parseInt(input.value) || 1000;
-		
+
 		// Restart repeat timer with new interval if currently repeating
 		if (this.isRepeating && this.repeatTimer !== null) {
 			clearInterval(this.repeatTimer);
@@ -647,7 +648,7 @@ class SerialPlotterApp extends LitElement {
 			}, this.repeatInterval);
 		}
 	}
-	
+
 	private handleHistorySelect(e: Event) {
 		const select = e.target as HTMLSelectElement;
 		if (select.value) {
@@ -655,45 +656,56 @@ class SerialPlotterApp extends LitElement {
 			this.requestUpdate();
 		}
 	}
-	   private downloadCSV() {
-			   // Convert lineBuffer to CSV string
-			   if (!this.lineBuffer || this.lineBuffer.length === 0) return;
-			   // Remove any ANSI color codes and join lines
-			   const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
-			   // Generate filename
-			   const now = new Date();
-			   const yyyy = now.getFullYear();
-			   const mm = String(now.getMonth() + 1).padStart(2, '0');
-			   const dd = String(now.getDate()).padStart(2, '0');
-			   const filename = `${yyyy}-${mm}-${dd}-muino-data_dump.csv`;
-			   // Send message to extension host to save file
-			   vscode.postMessage({
-					   type: 'save-csv',
-					   filename,
-					   content: csv
-			   });
-	   }
-private showToast(message: string) {
-	let toast = document.createElement('div');
-	toast.textContent = message;
-	toast.style.position = 'fixed';
-	toast.style.top = '24px';
-	toast.style.right = '32px';
-	toast.style.background = '#232323ee';
-	toast.style.color = '#fff';
-	toast.style.padding = '0.8em 1.6em';
-	toast.style.borderRadius = '8px';
-	toast.style.fontSize = '1.1em';
-	toast.style.boxShadow = '0 2px 12px #0008';
-	toast.style.zIndex = '9999';
-	toast.style.transition = 'opacity 0.3s';
-	toast.style.opacity = '1';
-	document.body.appendChild(toast);
-	setTimeout(() => {
-		toast.style.opacity = '0';
-		setTimeout(() => document.body.removeChild(toast), 300);
-	}, 2000);
-}
+	private downloadCSV() {
+		// Convert lineBuffer to CSV string
+		if (!this.lineBuffer || this.lineBuffer.length === 0) return;
+		// Remove any ANSI color codes and join lines
+		const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+		// Generate filename
+		const now = new Date();
+		const yyyy = now.getFullYear();
+		const mm = String(now.getMonth() + 1).padStart(2, '0');
+		const dd = String(now.getDate()).padStart(2, '0');
+		const filename = `${yyyy}-${mm}-${dd}-muino-data_dump.csv`;
+		// Send message to extension host to save file
+		vscode.postMessage({
+			type: 'save-csv',
+			filename,
+			content: csv
+		});
+	}
+	private showToast(message: string) {
+		let toast = document.createElement('div');
+		toast.textContent = message;
+		toast.style.position = 'fixed';
+		toast.style.top = '24px';
+		toast.style.right = '32px';
+		toast.style.background = '#232323ee';
+		toast.style.color = '#fff';
+		toast.style.padding = '0.8em 1.6em';
+		toast.style.borderRadius = '8px';
+		toast.style.fontSize = '1.1em';
+		toast.style.boxShadow = '0 2px 12px #0008';
+		toast.style.zIndex = '9999';
+		toast.style.transition = 'opacity 0.3s';
+		toast.style.opacity = '1';
+		document.body.appendChild(toast);
+		setTimeout(() => {
+			toast.style.opacity = '0';
+			setTimeout(() => document.body.removeChild(toast), 300);
+		}, 2000);
+	}
+
+	updated(changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
+		super.updated(changedProperties);
+		if (changedProperties.has('screen') && this.screen === 'raw') {
+			const rawView = this.renderRoot.querySelector('raw-data-view') as any;
+			if (rawView && this.lineBuffer.length > 0) {
+				rawView.lineBuffer = this.lineBuffer;
+			}
+		}
+	}
+
 	render() {
 		return html`
 		 <style>
@@ -796,9 +808,9 @@ private showToast(message: string) {
 						${map(
 			this.ports,
 			(p) => {
-				const displayName = p.path === '/dev/fake_serial' 
+				const displayName = p.path === '/dev/fake_serial'
 					? `${p.path} - Simulated`
-					: p.manufacturer 
+					: p.manufacturer
 						? `${p.path} - ${p.manufacturer}${p.vendorId ? ` (${p.vendorId}:${p.productId})` : ''}`
 						: p.path;
 				return html`<option value="${p.path}" ?selected="${this.selected === p.path}">${displayName}</option>`;
@@ -907,10 +919,10 @@ private showToast(message: string) {
 				  .value="${this.commandInput}"
 				  @input="${this.handleCommandInput}"
 				  @keydown="${(e: KeyboardEvent) => {
-					  if (e.key === 'Enter' && !this.isRepeating) {
-						  this.handleSendCommand();
-					  }
-				  }}"
+					if (e.key === 'Enter' && !this.isRepeating) {
+						this.handleSendCommand();
+					}
+				}}"
 				  placeholder="Enter command to send..."
 				  style="flex: 1; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 1rem; font-family: monospace;"
 			   />
@@ -956,19 +968,18 @@ private showToast(message: string) {
 			` : nothing}
 		   <div class="main-content" style="display: flex; flex-direction: column; gap: 1rem; height: 100%;">
 		  ${this.screen === 'raw'
-			 ? html`<raw-data-view id="rawdataview"
+				? html`<raw-data-view id="rawdataview"
 					 .autoScrollEnabled=${this.autoScrollEnabled}
 					 .hideData=${this.hideData}
-					 .lineBuffer=${this.lineBuffer}
 					 ></raw-data-view>`
-			 : this.plotInstances.map(id => html`
+				: this.plotInstances.map(id => html`
 					<plot-screen-fast 
 						key=${id}
 						.data=${this.variableMap}
 						.variableConfig=${this.variableConfig}
 					></plot-screen-fast>
 				`)
-			   }
+			}
 		   </div>
 		 </div>
 	  `;
@@ -978,21 +989,21 @@ private showToast(message: string) {
 
 // Listen for save result from extension host
 window.addEventListener('message', (event) => {
-	   const msg = event.data;
-	   if (msg && msg.type === 'save-csv-result') {
-			   if (msg.success) {
-					   const filename = msg.filename || 'CSV file';
-					   const app = document.querySelector('serial-plotter-app') as any;
-					   if (app && typeof app.showToast === 'function') {
-							   app.showToast(`CSV saved: ${filename}`);
-					   }
-			   } else {
-					   const app = document.querySelector('serial-plotter-app') as any;
-					   if (app && typeof app.showToast === 'function') {
-							   app.showToast('Failed to save CSV');
-					   }
-			   }
-	   }
+	const msg = event.data;
+	if (msg && msg.type === 'save-csv-result') {
+		if (msg.success) {
+			const filename = msg.filename || 'CSV file';
+			const app = document.querySelector('serial-plotter-app') as any;
+			if (app && typeof app.showToast === 'function') {
+				app.showToast(`CSV saved: ${filename}`);
+			}
+		} else {
+			const app = document.querySelector('serial-plotter-app') as any;
+			if (app && typeof app.showToast === 'function') {
+				app.showToast('Failed to save CSV');
+			}
+		}
+	}
 });
 
 // Mount the new app element

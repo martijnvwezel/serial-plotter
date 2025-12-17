@@ -2,7 +2,7 @@ import { LitElement, html, PropertyValueMap } from "lit";
 import { property, customElement, state } from "lit/decorators.js";
 
 // Import PixiJS (for WebGL rendering)
-import * as PIXI from "pixi.js"; 
+import * as PIXI from "pixi.js";
 
 @customElement("plot-screen-fast")
 export class PlotScreenFast extends LitElement {
@@ -14,7 +14,7 @@ export class PlotScreenFast extends LitElement {
   variableConfig: Record<string, { color: string; visablename: string }> = {};
   @property({ type: Map })
   data: Map<string, number[]> = new Map();
-  
+
   @state()
   dataColors: Map<string, string> = new Map();
   @state()
@@ -27,10 +27,10 @@ export class PlotScreenFast extends LitElement {
   @state()
   scrollOffset: number = 8196 / 2; // Initialize to half of visibleSamples
   @state()
-  stats: Array<{ 
-    key: string; 
-    min: number | string; 
-    max: number | string; 
+  stats: Array<{
+    key: string;
+    min: number | string;
+    max: number | string;
     mean: number | string;
     median: number | string;
     slope: number | string;
@@ -38,7 +38,7 @@ export class PlotScreenFast extends LitElement {
     peakToPeakWidth: number | string;
     current: number | string;
   }> = [];
-  
+
   @state()
   autoScaleY: boolean = true;
   @state()
@@ -53,7 +53,7 @@ export class PlotScreenFast extends LitElement {
   private startDragY = 0;
   private startYMin = 0;
   private startYMax = 0;
-  
+
   // --- Horizontal panning state ---
   private isDragging = false;
   private startDragX = 0;
@@ -155,14 +155,14 @@ export class PlotScreenFast extends LitElement {
   handleAutoScrollChange(e: Event) {
     const checkbox = e.target as HTMLInputElement;
     this.autoScroll = checkbox.checked;
-    
+
     // When enabling autoscroll, just update scroll position to show latest data
     // but preserve the zoom level (visibleSamples)
     if (this.autoScroll) {
       const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
       this.scrollOffset = maxSamples - this.visibleSamples / 2;
     }
-    
+
     this.renderData();
   }
 
@@ -225,7 +225,7 @@ export class PlotScreenFast extends LitElement {
   // Improved wheel handler with zoom at mouse position
   handleCanvasWheel(event: WheelEvent) {
     event.preventDefault();
-    
+
     if (event.shiftKey) {
       // Shift + wheel: Pan Y-axis
       if (this.autoScaleY) return;
@@ -253,7 +253,7 @@ export class PlotScreenFast extends LitElement {
           const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
           const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
           const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
-          
+
           for (const [name, line] of this.data.entries()) {
             if (!this.selectedVariables.has(name) || line.length < 2) continue;
             for (let i = startSample; i <= endSample; i++) {
@@ -268,22 +268,22 @@ export class PlotScreenFast extends LitElement {
           this.yMax = max;
         }
       }
-      
+
       if (this.yMax === null || this.yMin === null) return;
-      
+
       const rect = (event.target as HTMLElement).getBoundingClientRect();
       const mouseY = event.clientY - rect.top;
       const relativeY = 1 - (mouseY / rect.height); // 0 at bottom, 1 at top
       const mouseValueY = this.yMin + relativeY * (this.yMax - this.yMin);
-      
+
       let range = (this.yMax - this.yMin);
       const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
       range *= zoomFactor;
-      
+
       if (range < PlotScreenFast.MIN_Y_HEIGHT) {
         range = PlotScreenFast.MIN_Y_HEIGHT;
       }
-      
+
       // Keep mouse position at same value
       this.yMin = mouseValueY - relativeY * range;
       this.yMax = mouseValueY + (1 - relativeY) * range;
@@ -292,23 +292,23 @@ export class PlotScreenFast extends LitElement {
       const rect = (event.target as HTMLElement).getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
       const relativeX = mouseX / rect.width; // 0 at left, 1 at right
-      
+
       const oldVisible = this.visibleSamples;
       const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
       let newVisible = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, oldVisible * zoomFactor);
-      
+
       const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
       if (maxSamples > 0) {
         newVisible = Math.min(newVisible, maxSamples);
       }
-      
+
       // Adjust scroll offset to keep mouse position fixed
       const mouseSample = this.scrollOffset - this.visibleSamples / 2 + relativeX * this.visibleSamples;
       this.visibleSamples = newVisible;
       this.scrollOffset = mouseSample + newVisible / 2 - relativeX * newVisible;
       this.autoScroll = false;
     }
-    
+
     this.renderData();
   }
 
@@ -323,16 +323,16 @@ export class PlotScreenFast extends LitElement {
   handleDrop(event: DragEvent) {
     event.preventDefault();
     if (event.dataTransfer) {
-      const variableKey = event.dataTransfer.getData('application/x-variable-key') || 
-                          event.dataTransfer.getData('text/plain');
-      
+      const variableKey = event.dataTransfer.getData('application/x-variable-key') ||
+        event.dataTransfer.getData('text/plain');
+
       if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
         // Find the maximum data length across all variables
         const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
-        
+
         // Get the current data for the variable
         let varData = this.data.get(variableKey) ?? [];
-        
+
         // If this variable has less data than others, pad it with null values
         // This makes it sync with the timeline and start plotting from current position
         if (varData.length < maxLength) {
@@ -340,7 +340,7 @@ export class PlotScreenFast extends LitElement {
           varData = [...nullPadding, ...varData];
           this.data.set(variableKey, varData);
         }
-        
+
         // Toggle the variable selection (show it if hidden, or just keep it shown)
         const newSet = new Set(this.selectedVariables);
         if (!newSet.has(variableKey)) {
@@ -374,7 +374,7 @@ export class PlotScreenFast extends LitElement {
       newColors.set(name, obj.color);
     }
     this.dataColors = newColors;
-    
+
     // If no variables have been selected yet (graph is empty), auto-select all
     if (this.selectedVariables.size === 0) {
       this.selectedVariables = new Set(Object.keys(config));
@@ -403,13 +403,13 @@ export class PlotScreenFast extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    
+
     // Clear render timer
     if (this.renderTimer !== null) {
       clearTimeout(this.renderTimer);
       this.renderTimer = null;
     }
-    
+
     // Remove event listeners using bound handlers
     if (this.canvasDiv) {
       this.canvasDiv.removeEventListener("mousedown", this.boundHandleMouseDown);
@@ -420,24 +420,24 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.removeEventListener("dragover", this.boundHandleDragOver);
       this.canvasDiv.removeEventListener("drop", this.boundHandleDrop);
     }
-    
+
     // Clean up ResizeObserver
     if (this.resizeObserver && this.canvasDiv) {
       this.resizeObserver.unobserve(this.canvasDiv);
       this.resizeObserver.disconnect();
       this.resizeObserver = undefined;
     }
-    
+
     // Clean up PixiJS app
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });
       this.app = undefined;
     }
-    
+
     // Clear plot container reference
     this.plotContainer = undefined;
     this.canvasDiv = undefined;
-    
+
     // Clear data to free memory
     this.data.clear();
     this.dataColors.clear();
@@ -450,7 +450,7 @@ export class PlotScreenFast extends LitElement {
   }
 
   async firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
-    
+
     super.firstUpdated(_changedProperties);
     this.canvasDiv = this.renderRoot.querySelector<HTMLDivElement>(".pixi-canvas-div");
     if (!this.canvasDiv || this.canvasDiv.offsetWidth === 0 || this.canvasDiv.offsetHeight === 0) {
@@ -460,7 +460,7 @@ export class PlotScreenFast extends LitElement {
     if (!this.app) {
       await this.initPixi();
     }
-    
+
     // Add event listeners using bound handlers
     if (this.canvasDiv) {
       this.canvasDiv.addEventListener("mousedown", this.boundHandleMouseDown);
@@ -468,14 +468,14 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.addEventListener("mouseup", this.boundHandleMouseUp);
       this.canvasDiv.addEventListener("mouseleave", this.boundHandleMouseUp);
       this.canvasDiv.addEventListener("wheel", this.boundHandleCanvasWheel, { passive: false });
-      
+
       // Add drag and drop event listeners
       this.canvasDiv.addEventListener("dragover", this.boundHandleDragOver);
       this.canvasDiv.addEventListener("drop", this.boundHandleDrop);
     }
-    
+
     // DON'T auto-select variables - graphs start empty
-    
+
     this.renderData();
   }
 
@@ -501,7 +501,7 @@ export class PlotScreenFast extends LitElement {
       if (this.app && this.app.stage) {
         this.app.stage.addChild(this.plotContainer);
       }
-      
+
       // Set up ResizeObserver to handle container resizing
       this.resizeObserver = new ResizeObserver(() => {
         if (this.app && this.canvasDiv) {
@@ -517,12 +517,10 @@ export class PlotScreenFast extends LitElement {
 
   renderData() {
     if (!this.app || !this.plotContainer || !this.isConnected) return;
-    
+
     // Throttle updates: only schedule next render after interval
     if (this.renderTimer !== null) {
-      clearTimeout(this.renderTimer);
-      this.renderTimer = null;
-      return; // Skip this render if one is already scheduled
+      return; // A render is already scheduled, it will pick up the latest data when it runs.
     }
     this.renderTimer = window.setTimeout(() => {
       this.renderTimer = null;
@@ -532,26 +530,52 @@ export class PlotScreenFast extends LitElement {
 
   private actualRenderData() {
     if (!this.app || !this.plotContainer || !this.isConnected) return;
-    
+
     this.plotContainer.removeChildren();
     const w = this.app.renderer.width;
     const h = this.app.renderer.height;
-    
+
     if (w === 0 || h === 0) return;
-    
+
     const padding = this.padding;
     const labelPadding = 24;
     const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+
+    // Auto-scroll logic: update scroll position to show latest data
+    // but preserve user's zoom level (visibleSamples)
+    if (this.autoScroll) {
+      // Snap to show the latest data (no smooth scrolling to avoid render issues)
+      const targetScrollOffset = maxSamples - this.visibleSamples / 2;
+
+      // Clamp scroll offset to valid range
+      const minOffset = this.visibleSamples / 2;
+      const maxOffset = Math.max(minOffset, maxSamples - this.visibleSamples / 2);
+      this.scrollOffset = Math.max(minOffset, Math.min(maxOffset, targetScrollOffset));
+    } else {
+      // When auto-scroll is off, if we have fewer samples than visible window,
+      // clamp scrollOffset to ensure samples stay in view
+      if (maxSamples < this.visibleSamples) {
+        const minScroll = this.visibleSamples / 2;
+        const maxScroll = maxSamples - this.visibleSamples / 2;
+        if (maxScroll < minScroll) {
+          // Very few samples - center them
+          this.scrollOffset = this.visibleSamples / 2;
+        } else {
+          this.scrollOffset = Math.max(minScroll, Math.min(maxScroll, this.scrollOffset));
+        }
+      }
+    }
+
     const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
     const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
-    
+
     // --- Stats calculation for visible window (optimized single-pass) ---
     const newStats = Array.from(this.data.entries())
       .map(([key, values]) => {
         if (!values.length) {
           return { key, min: 'N/A', max: 'N/A', mean: 'N/A', median: 'N/A', slope: 'N/A', peakToPeak: 'N/A', peakToPeakWidth: 'N/A', current: 'N/A' };
         }
-        
+
         // Single pass: calculate min, max, mean, and find indices
         let minV = Infinity;
         let maxV = -Infinity;
@@ -560,7 +584,7 @@ export class PlotScreenFast extends LitElement {
         let minIndex = -1;
         let maxIndex = -1;
         let current: number | string = 'N/A';
-        
+
         for (let i = startSample; i <= endSample && i < values.length; i++) {
           const v = values[i];
           if (typeof v === 'number' && !isNaN(v)) {
@@ -577,28 +601,28 @@ export class PlotScreenFast extends LitElement {
             current = v; // Last valid value
           }
         }
-        
+
         if (count === 0) {
           return { key, min: 'N/A', max: 'N/A', mean: 'N/A', median: 'N/A', slope: 'N/A', peakToPeak: 'N/A', peakToPeakWidth: 'N/A', current: 'N/A' };
         }
-        
+
         const mean = sum / count;
-        
+
         // Simplified median calculation (approximate for performance)
         // For exact median, we'd need to sort which is O(n log n)
         // Using mean as approximate median for better performance
         const median = mean;
-        
+
         // Peak to peak calculations
         const peakToPeak = maxV - minV;
         const peakToPeakWidth = Math.abs(maxIndex - minIndex);
-        
+
         // Calculate slope
         let slope: number | string = 'N/A';
         if (peakToPeakWidth > 0) {
           slope = (maxV - minV) / peakToPeakWidth;
         }
-        
+
         return { key, min: minV, max: maxV, mean, median, slope, peakToPeak, peakToPeakWidth, current };
       });
     // Only update stats if changed (stats is @state, so assignment will auto-trigger re-render)
@@ -607,7 +631,7 @@ export class PlotScreenFast extends LitElement {
       this.stats = newStats;
       // No need to call requestUpdate() - @state() decorator handles it
     }
-    
+
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
     for (const [name, line] of this.data.entries()) {
@@ -620,58 +644,32 @@ export class PlotScreenFast extends LitElement {
         }
       }
     }
-    
+
     // Only update yMin/yMax from data if autoScaleY is enabled
     if (this.autoScaleY) {
       this.yMin = min;
       this.yMax = max;
-    } else if (this.yMin === null || this.yMax === null) {  
+    } else if (this.yMin === null || this.yMax === null) {
       // If manual mode but yMin/yMax not set, initialize to data range
       this.yMin = min;
       this.yMax = max;
     }
-    
+
     const yMin = this.yMin ?? min;
     const yMax = this.yMax ?? max;
     const height = yMax - yMin;
     const scaleY = height !== 0 ? (h - padding * 2 - labelPadding * 2) / height : 1;
     const yAxisOffset = 60; // Increased offset for Y-axis labels
-    
+
     // Ensure minimum visible samples of 10 for single data points
     const effectiveVisibleSamples = Math.max(10, this.visibleSamples);
     const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (effectiveVisibleSamples - 1);
-    
-    // Auto-scroll logic: update scroll position to show latest data
-    // but preserve user's zoom level (visibleSamples)
-    if (this.autoScroll) {
-      // Smoothly scroll to show the latest data
-      const targetScrollOffset = maxSamples - this.visibleSamples / 2;
-      this.scrollOffset = this.scrollOffset * 0.4 + targetScrollOffset * 0.6;
-      
-      // Clamp scroll offset to valid range
-      const minOffset = this.visibleSamples / 2;
-      const maxOffset = Math.max(minOffset, maxSamples - this.visibleSamples / 2);
-      this.scrollOffset = Math.max(minOffset, Math.min(maxOffset, this.scrollOffset));
-    } else {
-      // When auto-scroll is off, if we have fewer samples than visible window,
-      // clamp scrollOffset to ensure samples stay in view
-      if (maxSamples < this.visibleSamples) {
-        const minScroll = this.visibleSamples / 2;
-        const maxScroll = maxSamples - this.visibleSamples / 2;
-        if (maxScroll < minScroll) {
-          // Very few samples - center them
-          this.scrollOffset = this.visibleSamples / 2;
-        } else {
-          this.scrollOffset = Math.max(minScroll, Math.min(maxScroll, this.scrollOffset));
-        }
-      }
-    }
-    
+
     // Draw Y-axis grid and labels
     const labelHeight = 50;
     const numYLabels = Math.floor(h / labelHeight);
     const gridLines = new PIXI.Graphics();
-    
+
     for (let i = 0; i <= numYLabels; i++) {
       const yValue = yMin + (i / numYLabels) * height;
       const y = h - labelPadding - padding - (yValue - yMin) * scaleY;
@@ -680,7 +678,7 @@ export class PlotScreenFast extends LitElement {
     }
     gridLines.stroke({ width: 1, color: 0x333333, alpha: 0.3 });
     this.plotContainer.addChild(gridLines);
-    
+
     // Create a clipping mask for the data area (between Y-axis and right edge)
     const clipMask = new PIXI.Graphics();
     clipMask.rect(
@@ -691,7 +689,7 @@ export class PlotScreenFast extends LitElement {
     );
     clipMask.fill({ color: 0xffffff });
     this.plotContainer.addChild(clipMask);
-    
+
     // Draw zero line if it's in the visible range (prominent white line)
     if (yMin <= 0 && yMax >= 0) {
       const zeroY = h - labelPadding - padding - (0 - yMin) * scaleY;
@@ -701,23 +699,23 @@ export class PlotScreenFast extends LitElement {
       zeroLine.stroke({ width: 2, color: 0xeeeeee, alpha: 0.7 });
       this.plotContainer.addChild(zeroLine);
     }
-    
+
     // Draw X and Y axis lines
     const axisLines = new PIXI.Graphics();
-    
+
     // Y-axis (left side)
     const leftX = padding + yAxisOffset;
     axisLines.moveTo(leftX, padding);
     axisLines.lineTo(leftX, h - labelPadding - padding);
-    
+
     // X-axis (bottom)
     const bottomY = h - labelPadding - padding;
     axisLines.moveTo(padding + yAxisOffset, bottomY);
     axisLines.lineTo(w - padding, bottomY);
-    
+
     axisLines.stroke({ width: 2, color: 0x888888, alpha: 0.8 });
     this.plotContainer.addChild(axisLines);
-    
+
     // Draw Y-axis labels using PixiJS Text
     for (let i = 0; i <= numYLabels; i++) {
       const yValue = yMin + (i / numYLabels) * height;
@@ -735,12 +733,12 @@ export class PlotScreenFast extends LitElement {
       text.y = y;
       this.plotContainer.addChild(text);
     }
-    
+
     // Draw X-axis labels
     const labelWidthPx = 96;
     const numXLabels = Math.floor(w / labelWidthPx);
     const step = Math.ceil(effectiveVisibleSamples / numXLabels);
-    
+
     for (let i = startSample; i <= endSample; i++) {
       const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
       if (x >= padding + yAxisOffset && x <= w - padding && i % step === 0) {
@@ -758,38 +756,38 @@ export class PlotScreenFast extends LitElement {
         this.plotContainer.addChild(text);
       }
     }
-    
+
     // Create a container for data lines with clipping mask
     const dataLinesContainer = new PIXI.Container();
     dataLinesContainer.mask = clipMask;
     this.plotContainer.addChild(dataLinesContainer);
-    
+
     // Draw data lines
     for (const [name, line] of this.data.entries()) {
       if (!this.selectedVariables.has(name) || line.length < 1) continue;
       let color = this.variableConfig[name]?.color || this.getDataColor(name) || "#ffffff";
       // PixiJS expects color as number, so convert if string
       let colorNum = typeof color === "string" && color.startsWith("#") ? parseInt(color.slice(1), 16) : color;
-      
+
       const leftBoundary = padding + yAxisOffset;
       const rightBoundary = w - padding;
-      
+
       const g = new PIXI.Graphics();
       let pathStarted = false;
       let pointCount = 0;
-      
+
       // First pass: count valid points and draw lines
       for (let i = startSample; i <= endSample && i < line.length; i++) {
         const value = line[i];
-        
+
         // Check if this point has a valid value
         const isValidPoint = value != null && !isNaN(value) && isFinite(value);
-        
+
         if (isValidPoint) {
           pointCount++;
           const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
           const y = h - labelPadding - padding - (value - yMin) * scaleY;
-          
+
           // Draw the point even if slightly outside bounds to ensure line continuity
           // The clipping mask will hide parts outside the graph area
           if (!pathStarted) {
@@ -803,33 +801,33 @@ export class PlotScreenFast extends LitElement {
           pathStarted = false;
         }
       }
-      
+
       // Stroke the entire path if we have more than one point
       if (pointCount > 1) {
         g.stroke({ width: this.lineWidth, color: colorNum });
       }
-      
+
       // Second pass: draw circles for single points or all points if only one exists
       if (pointCount === 1 || line.length === 1) {
         for (let i = startSample; i <= endSample && i < line.length; i++) {
           const value = line[i];
           const isValidPoint = value != null && !isNaN(value) && isFinite(value);
-          
+
           if (isValidPoint) {
             const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
             const y = h - labelPadding - padding - (value - yMin) * scaleY;
-            
+
             // Draw a circle for the point
             g.circle(x, y, 4);
             g.fill({ color: colorNum });
-            
+
             // Add an outline for better visibility
             g.circle(x, y, 4);
             g.stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
           }
         }
       }
-      
+
       dataLinesContainer.addChild(g);
     }
   }
@@ -842,10 +840,10 @@ export class PlotScreenFast extends LitElement {
     if (visibleSamples !== this.visibleSamples) {
       this.visibleSamples = visibleSamples;
     }
-    
+
     // Only show stats for variables present in variableConfig
     const filteredStats = this.stats.filter(stat => this.variableConfig.hasOwnProperty(stat.key));
-    
+
     // Helper to get visablename if present
     const getDisplayName = (key: string) => {
       if (this.variableConfig && this.variableConfig[key] && this.variableConfig[key].visablename) {
@@ -853,12 +851,12 @@ export class PlotScreenFast extends LitElement {
       }
       return key;
     };
-    
+
     // Helper to format numbers properly
     const formatValue = (value: number | string): string => {
       if (typeof value === 'string') return value; // Return 'N/A' as-is
       if (!isFinite(value) || isNaN(value)) return 'N/A';
-      
+
       // Round to 4 significant digits to avoid floating point precision issues
       const absValue = Math.abs(value);
       if (absValue === 0) return '0';
@@ -870,7 +868,7 @@ export class PlotScreenFast extends LitElement {
       const decimalPlaces = Math.max(0, 4 - Math.floor(Math.log10(absValue)) - 1);
       return value.toFixed(Math.min(decimalPlaces, 4));
     };
-    
+
     return html`
       <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%; border: none; border-radius: 12px; padding: 1rem; background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);">
         <!-- Statistics Table -->
@@ -894,13 +892,13 @@ export class PlotScreenFast extends LitElement {
               ${filteredStats.map((stat, index) => html`
                 <tr style="transition: all 0.2s ease; border-bottom: 1px solid rgba(255, 255, 255, 0.05);"
                   @mouseenter="${(e: MouseEvent) => {
-                    (e.currentTarget as HTMLElement).style.background = 'linear-gradient(to right, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.05))';
-                    (e.currentTarget as HTMLElement).style.transform = 'translateX(2px)';
-                  }}"
+        (e.currentTarget as HTMLElement).style.background = 'linear-gradient(to right, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.05))';
+        (e.currentTarget as HTMLElement).style.transform = 'translateX(2px)';
+      }}"
                   @mouseleave="${(e: MouseEvent) => {
-                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                    (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
-                  }}">
+        (e.currentTarget as HTMLElement).style.background = 'transparent';
+        (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
+      }}">
                   <td style="padding: 0.6rem 0.3rem; text-align: center;">
                     <button @click="${() => this.handleRemoveVariable(stat.key)}" 
                       title="Remove from graph"
@@ -923,17 +921,17 @@ export class PlotScreenFast extends LitElement {
                         line-height: 1;
                       "
                       @mouseenter="${(e: MouseEvent) => {
-                        const btn = e.currentTarget as HTMLElement;
-                        btn.style.background = 'rgba(239, 83, 80, 0.2)';
-                        btn.style.borderColor = '#ef5350';
-                        btn.style.color = '#fff';
-                      }}"
+        const btn = e.currentTarget as HTMLElement;
+        btn.style.background = 'rgba(239, 83, 80, 0.2)';
+        btn.style.borderColor = '#ef5350';
+        btn.style.color = '#fff';
+      }}"
                       @mouseleave="${(e: MouseEvent) => {
-                        const btn = e.currentTarget as HTMLElement;
-                        btn.style.background = 'rgba(239, 83, 80, 0.1)';
-                        btn.style.borderColor = 'rgba(239, 83, 80, 0.3)';
-                        btn.style.color = '#ef5350';
-                      }}">
+        const btn = e.currentTarget as HTMLElement;
+        btn.style.background = 'rgba(239, 83, 80, 0.1)';
+        btn.style.borderColor = 'rgba(239, 83, 80, 0.3)';
+        btn.style.color = '#ef5350';
+      }}">
                       ✕
                     </button>
                   </td>
@@ -967,13 +965,13 @@ export class PlotScreenFast extends LitElement {
           />
           <label style="margin-left: 1em;">
             <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {
-              this.autoScaleY = (e.target as HTMLInputElement).checked;
-              if (this.autoScaleY) {
-                this.yMin = null;
-                this.yMax = null;
-              }
-              this.renderData();
-            }} />
+        this.autoScaleY = (e.target as HTMLInputElement).checked;
+        if (this.autoScaleY) {
+          this.yMin = null;
+          this.yMax = null;
+        }
+        this.renderData();
+      }} />
             Auto-scale Y
           </label>
         </div>
