@@ -2,6 +2,7 @@
 import { LitElement, html, nothing, PropertyValueMap } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { map } from "lit/directives/map.js";
+import { repeat } from "lit/directives/repeat.js";
 import "./components/raw_data_view";
 import "./components/sidebar";
 import "./components/plot_screen_fast";
@@ -996,11 +997,12 @@ class SerialPlotterApp extends LitElement {
 					 .hideData=${this.hideData}
 					 .lineBuffer=${this.lineBuffer}
 					 ></raw-data-view>`
-				: this.plotInstances.length > 0 ? this.plotInstances.map(id => html`
+				: this.plotInstances.length > 0 ? repeat(this.plotInstances, (id) => id, (id) => html`
 					<plot-screen-fast 
 						key=${id}
 						.data=${this.variableMap}
 						.variableConfig=${this.variableConfig}
+						.startEmpty=${id !== 0}
 						@remove-plot=${() => this.handleRemovePlot(id)}
 					></plot-screen-fast>
 				`) : html`

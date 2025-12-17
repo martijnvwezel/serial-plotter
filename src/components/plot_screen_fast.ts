@@ -15,6 +15,9 @@ export class PlotScreenFast extends LitElement {
   @property({ type: Map })
   data: Map<string, number[]> = new Map();
 
+  @property({ type: Boolean })
+  startEmpty: boolean = false;
+
   @state()
   dataColors: Map<string, string> = new Map();
   @state()
@@ -482,8 +485,11 @@ export class PlotScreenFast extends LitElement {
       this.dataColors = newColors;
 
       // If no variables have been selected yet (graph is empty), auto-select all
+      // UNLESS startEmpty is true
       if (this.selectedVariables.size === 0) {
-        this.selectedVariables = new Set(Object.keys(config));
+        if (!this.startEmpty) {
+          this.selectedVariables = new Set(Object.keys(config));
+        }
       } else {
         const currentSelected = new Set(this.selectedVariables);
         let changed = false;
@@ -935,8 +941,10 @@ export class PlotScreenFast extends LitElement {
       this.visibleSamples = visibleSamples;
     }
 
-    // Only show stats for variables present in variableConfig
-    const filteredStats = this.stats.filter(stat => this.variableConfig.hasOwnProperty(stat.key));
+    // Only show stats for variables present in variableConfig AND selectedVariables
+    const filteredStats = this.stats.filter(stat => 
+      this.variableConfig.hasOwnProperty(stat.key) && this.selectedVariables.has(stat.key)
+    );
 
     // Helper to get visablename if present
     const getDisplayName = (key: string) => {
