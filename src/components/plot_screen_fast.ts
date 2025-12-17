@@ -46,6 +46,13 @@ export class PlotScreenFast extends LitElement {
   @state()
   yMax: number | null = null;
 
+  @state()
+  autoBurstFit: boolean = false;
+  @state()
+  burstStartIndex: number = 0;
+  private lastSampleTime: number = 0;
+  private burstGapThreshold: number = 1000; // ms
+
   private static readonly MIN_Y_HEIGHT = 1e-6;
 
   // --- Vertical panning state ---
@@ -85,6 +92,16 @@ export class PlotScreenFast extends LitElement {
     if (!this.variableConfig.hasOwnProperty(variable)) {
       return;
     }
+
+    // Check for burst gap
+    const now = Date.now();
+    if (now - this.lastSampleTime > this.burstGapThreshold) {
+      // New burst detected
+      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      this.burstStartIndex = maxSamples;
+    }
+    this.lastSampleTime = now;
+
     let graphData = this.data.get(variable) ?? [];
     graphData.push(value);
     this.data.set(variable, graphData);
@@ -101,6 +118,16 @@ export class PlotScreenFast extends LitElement {
     if (!this.variableConfig.hasOwnProperty(variable)) {
       return;
     }
+
+    // Check for burst gap
+    const now = Date.now();
+    if (now - this.lastSampleTime > this.burstGapThreshold) {
+      // New burst detected
+      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      this.burstStartIndex = maxSamples;
+    }
+    this.lastSampleTime = now;
+
     let arr = this.data.get(variable) ?? [];
     arr.push(value);
     this.data.set(variable, arr);
@@ -140,6 +167,10 @@ export class PlotScreenFast extends LitElement {
 
   handleAddPlot() {
     this.dispatchEvent(new CustomEvent('add-plot', { bubbles: true, composed: true }));
+  }
+
+  handleRemovePlot() {
+    this.dispatchEvent(new CustomEvent('remove-plot', { bubbles: true, composed: true }));
   }
 
   handleClose() {
@@ -393,7 +424,23 @@ export class PlotScreenFast extends LitElement {
 
   // Allow external update of data (for reactivity)
   public setData(data: Map<string, number[]>) {
+    // Check for burst gap
+    const now = Date.now();
+    if (now - this.lastSampleTime > this.burstGapThreshold) {
+      // New burst detected
+      const oldMaxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      this.burstStartIndex = oldMaxSamples;
+    }
+    this.lastSampleTime = now;
+
     this.data = new Map(data);
+
+    // Sanity check: if burstStartIndex is beyond new data length (e.g. cleared), reset it
+    const newMaxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    if (this.burstStartIndex > newMaxSamples) {
+      this.burstStartIndex = 0;
+    }
+
     this.renderData();
   }
 
@@ -543,7 +590,19 @@ export class PlotScreenFast extends LitElement {
 
     // Auto-scroll logic: update scroll position to show latest data
     // but preserve user's zoom level (visibleSamples)
-    if (this.autoScroll) {
+    if (this.autoBurstFit) {
+      // Auto-fit to the current burst
+      const burstLength = maxSamples - this.burstStartIndex;
+      // Ensure we show at least MIN_VISIBLE_SAMPLES, but if burst is smaller, we might want to zoom in?
+      // Actually, let's just fit the burst. If burst is 0, show MIN.
+      this.visibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, burstLength);
+      // Center the view on the burst
+      this.scrollOffset = this.burstStartIndex + this.visibleSamples / 2;
+      
+      // If the burst is smaller than MIN_VISIBLE_SAMPLES, we might be showing some empty space or previous data.
+      // To strictly show only the burst (if possible), we'd need to allow visibleSamples < MIN, but that might break things.
+      // So we stick to MIN.
+    } else if (this.autoScroll) {
       // Snap to show the latest data (no smooth scrolling to avoid render issues)
       const targetScrollOffset = maxSamples - this.visibleSamples / 2;
 
@@ -566,7 +625,10 @@ export class PlotScreenFast extends LitElement {
       }
     }
 
-    const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
+    const startSample = Math.max(
+      this.autoBurstFit ? this.burstStartIndex : 0,
+      Math.floor(this.scrollOffset - this.visibleSamples / 2)
+    );
     const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
 
     // --- Stats calculation for visible window (optimized single-pass) ---
@@ -743,7 +805,7 @@ export class PlotScreenFast extends LitElement {
       const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
       if (x >= padding + yAxisOffset && x <= w - padding && i % step === 0) {
         const text = new PIXI.Text({
-          text: i.toString(),
+          text: (this.autoBurstFit ? i - this.burstStartIndex : i).toString(),
           style: {
             fontSize: 14,
             fill: 0xaaaaaa,
@@ -870,7 +932,40 @@ export class PlotScreenFast extends LitElement {
     };
 
     return html`
-      <div style="display: flex; flex-direction: column; gap: 0.8rem; width: 100%; border: none; border-radius: 12px; padding: 1rem; background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);">
+      <div style="position: relative; display: flex; flex-direction: column; gap: 0.8rem; width: 100%; border: none; border-radius: 12px; padding: 1rem; background: linear-gradient(135deg, #1a1a1a 0%, #252525 100%); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);">
+        <button @click=${this.handleRemovePlot}
+          title="Remove Plot"
+          style="
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: transparent;
+            border: none;
+            color: #555;
+            font-size: 0.85rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            z-index: 10;
+            transition: all 0.2s;
+            border-radius: 4px;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          "
+          @mouseenter="${(e: MouseEvent) => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = '#ef5350';
+            el.style.background = 'rgba(239, 83, 80, 0.1)';
+          }}"
+          @mouseleave="${(e: MouseEvent) => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = '#555';
+            el.style.background = 'transparent';
+          }}"
+        >✕</button>
         <!-- Statistics Table -->
         <div style="margin-bottom: 0.3rem; overflow-x: auto; border-radius: 8px; background: rgba(0, 0, 0, 0.2); max-width: fit-content;">
           <table style="width: auto; border-collapse: separate; border-spacing: 0; font-size: 0.8rem; font-family: 'Segoe UI', system-ui, sans-serif;">
@@ -903,14 +998,13 @@ export class PlotScreenFast extends LitElement {
                     <button @click="${() => this.handleRemoveVariable(stat.key)}" 
                       title="Remove from graph"
                       style="
-                        background: rgba(239, 83, 80, 0.1);
+                        background: transparent;
                         color: #ef5350;
-                        border: 1px solid rgba(239, 83, 80, 0.3);
-                        border-radius: 3px;
+                        border: none;
                         width: 18px;
-                        min-width: 2rem;
+                        min-width: 1rem;
                         height: 18px;
-                        font-size: 0.75em;
+                        font-size: 1em;
                         font-weight: 600;
                         cursor: pointer;
                         transition: all 0.15s ease;
@@ -922,15 +1016,13 @@ export class PlotScreenFast extends LitElement {
                       "
                       @mouseenter="${(e: MouseEvent) => {
         const btn = e.currentTarget as HTMLElement;
-        btn.style.background = 'rgba(239, 83, 80, 0.2)';
-        btn.style.borderColor = '#ef5350';
-        btn.style.color = '#fff';
+        btn.style.color = '#ff8a80';
+        btn.style.transform = 'scale(1.2)';
       }}"
                       @mouseleave="${(e: MouseEvent) => {
         const btn = e.currentTarget as HTMLElement;
-        btn.style.background = 'rgba(239, 83, 80, 0.1)';
-        btn.style.borderColor = 'rgba(239, 83, 80, 0.3)';
         btn.style.color = '#ef5350';
+        btn.style.transform = 'scale(1)';
       }}">
                       ✕
                     </button>
@@ -951,9 +1043,36 @@ export class PlotScreenFast extends LitElement {
         </div>
         
         <!-- Controls -->
-        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-          <label>Auto-scroll</label>
-          <input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} />
+        <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
+            <input type="checkbox" .checked="${this.autoScroll}" @change=${this.handleAutoScrollChange} ?disabled="${this.autoBurstFit}" />
+            Auto-scroll
+          </label>
+          
+          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;" title="Automatically fits the graph to the latest burst of data. A new burst is detected if no data is received for 1 second.">
+            <input type="checkbox" .checked="${this.autoBurstFit}" @change=${(e: Event) => {
+              this.autoBurstFit = (e.target as HTMLInputElement).checked;
+              if (this.autoBurstFit) {
+                this.autoScroll = false; // Disable standard auto-scroll when burst fit is on
+              }
+              this.renderData();
+            }} />
+            Auto Burst Fit
+            <span style="
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              width: 14px;
+              height: 14px;
+              border-radius: 50%;
+              background: #444;
+              color: #aaa;
+              font-size: 10px;
+              font-weight: bold;
+              cursor: help;
+            ">?</span>
+          </label>
+
           <label style="display: none;">Zoom</label>
           <input
             type="range"
@@ -963,7 +1082,7 @@ export class PlotScreenFast extends LitElement {
             @input=${this.handleVisibleSamplesChange}
             style="display: none; flex-grow: 1; max-width: 350px; outline: none;"
           />
-          <label style="margin-left: 1em;">
+          <label style="display: flex; align-items: center; gap: 0.5em; cursor: pointer;">
             <input type="checkbox" .checked="${this.autoScaleY}" @change=${(e: Event) => {
         this.autoScaleY = (e.target as HTMLInputElement).checked;
         if (this.autoScaleY) {
@@ -980,7 +1099,7 @@ export class PlotScreenFast extends LitElement {
         <div class="pixi-canvas-div" style="resize: vertical; overflow: hidden; width: 100%; height: 500px; background: #181818; border-radius: 6px; border: 1px solid #444;"></div>
         
         <!-- Add Plot Button -->
-        <div style="display: flex; justify-content: flex-start; margin-top: 1.8rem;">
+        <div style="display: flex; justify-content: flex-start; margin-top: 1.8rem; gap: 1rem;">
           <button @click=${this.handleAddPlot}
             id="addplot"
             style="align-self: flex-start; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.45rem 1.1rem; font-size: 1rem; font-weight: 600; letter-spacing: 0.03em; min-width: 8.5rem; cursor: pointer; transition: border 0.2s, box-shadow 0.2s;">

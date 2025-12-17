@@ -143,6 +143,16 @@ class SerialPlotterApp extends LitElement {
 		this.plotInstances = [...this.plotInstances, newId];
 	}
 
+	private handleRemovePlot(id: number) {
+		// Remove the plot instance with the given ID
+		// Always keep at least one plot if we are in plot mode? 
+		// The user might want to remove all and see nothing? 
+		// Let's allow removing all, or maybe keep one. 
+		// Usually apps keep one. But let's see.
+		// If I remove the last one, plotInstances becomes empty.
+		this.plotInstances = this.plotInstances.filter(instanceId => instanceId !== id);
+	}
+
 	private handleClearBuffer() {
 		console.log("Clearing main line buffer");
 		this.lineBuffer = [];
@@ -479,37 +489,44 @@ class SerialPlotterApp extends LitElement {
 			parts.forEach((val: string, idx: number) => {
 				val = val.replace(/[{}]/g, ''); // remove { and } from val
 
-
+				let valueStr = val;
 
 				if (val.includes(':')) {
-					name = val.split(':')[0];
+					const split = val.split(':');
+					name = split[0];
+					valueStr = split[1]; // Get the value part
+					
 					if (this.autoVariableUpdate && !this.variableConfig[name]) {
 						const color = this.colorPalette[idx % this.colorPalette.length];
 						this.variableConfig[name] = { color, visablename: name };
 						this.variableOrder.push(name);
 						variables_updated = true;
 					}
-					skip = true;
-					return
+					// Don't skip, proceed to add data
+				} else {
+					// Positional data
+					if (maxVars < (idx + 1)) {
+						name = 'line' + (idx + 1);
+					}
+					else {
+						name = this.variableOrder[idx]
+					}
+					if (this.autoVariableUpdate && !this.variableConfig[name]) {
+						const color = this.colorPalette[idx % this.colorPalette.length];
+						this.variableConfig[name] = { color, visablename: name };
+						this.variableOrder.push(name);
+						variables_updated = true;
+					}
 				}
 
-
-				if (maxVars < (idx + 1)) {
-					name = 'line' + (idx + 1);
-				}
-				else {
-					name = this.variableOrder[idx]
-				}
-				if (this.autoVariableUpdate && !this.variableConfig[name]) {
-					const color = this.colorPalette[idx % this.colorPalette.length];
-					this.variableConfig[name] = { color, visablename: name };
-					this.variableOrder.push(name);
-					variables_updated = true;
-				}			// Add data to the variable
+				// Add data to the variable
 				let arr = this.variableMap.get(name) ?? [];
-				const numVal = parseFloat(val);
-				arr.push(!isNaN(numVal) ? numVal : 0);
-				this.variableMap.set(name, arr);
+				const numVal = parseFloat(valueStr);
+				// Only add if it's a valid number
+				if (!isNaN(numVal)) {
+					arr.push(numVal);
+					this.variableMap.set(name, arr);
+				}
 
 				// Check buffer size and trim if necessary
 				this.currentBufferBytes += SerialPlotterApp.BYTES_PER_NUMBER;
@@ -941,7 +958,6 @@ class SerialPlotterApp extends LitElement {
 				  @input="${this.handleRepeatIntervalChange}"
 				  min="100"
 				  step="100"
-				  ?disabled="${!this.isRepeating}"
 				  style="width: 100px; background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.5rem; font-size: 0.9rem;"
 			   />
 			   <button 
@@ -972,13 +988,21 @@ class SerialPlotterApp extends LitElement {
 					 .autoScrollEnabled=${this.autoScrollEnabled}
 					 .hideData=${this.hideData}
 					 ></raw-data-view>`
-				: this.plotInstances.map(id => html`
+				: this.plotInstances.length > 0 ? this.plotInstances.map(id => html`
 					<plot-screen-fast 
 						key=${id}
 						.data=${this.variableMap}
 						.variableConfig=${this.variableConfig}
+						@remove-plot=${() => this.handleRemovePlot(id)}
 					></plot-screen-fast>
-				`)
+				`) : html`
+					<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666; gap: 1rem; min-height: 300px;">
+						<div style="font-size: 1.1rem;">No active plots</div>
+						<button @click=${this.handleAddPlot} style="background: #5a5a5a; color: #c3c1c1ff; border: 1px solid #888; border-radius: 6px; padding: 0.6rem 1.2rem; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+							Add Plot
+						</button>
+					</div>
+				`
 			}
 		   </div>
 		 </div>
