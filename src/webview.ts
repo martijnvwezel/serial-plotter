@@ -489,11 +489,11 @@ class SerialPlotterApp extends LitElement {
 			// Check for positional data (all numbers)
 			const parts = line.split(/[ \t,;]+/).filter(Boolean);
 			// Clean parts to check if they are numbers
-			const cleanParts = parts.map(p => p.replace(/^['"(\[{]+|['")\]}]+$/g, ""));
-			const allNumbers = cleanParts.length > 0 && cleanParts.every(p => !isNaN(parseFloat(p)));
+			const cleanParts = parts.map((p: string) => p.replace(/^['"(\[{]+|['")\]}]+$/g, ""));
+			const allNumbers = cleanParts.length > 0 && cleanParts.every((p: string) => !isNaN(parseFloat(p)));
 
 			if (allNumbers) {
-				cleanParts.forEach((valStr, idx) => {
+				cleanParts.forEach((valStr: string, idx: number) => {
 					const val = parseFloat(valStr);
 					let name = "";
 					const maxVars = Object.keys(this.variableConfig).length;

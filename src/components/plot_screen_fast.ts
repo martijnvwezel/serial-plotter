@@ -977,33 +977,39 @@ export class PlotScreenFast extends LitElement {
           title="Remove Plot"
           style="
             position: absolute;
-            top: 8px;
-            right: 8px;
-            background: transparent;
-            border: none;
-            color: #555;
-            font-size: 0.85rem;
+            top: 12px;
+            right: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #888;
+            font-size: 14px;
             cursor: pointer;
             padding: 0;
             line-height: 1;
             z-index: 10;
             transition: all 0.2s;
-            border-radius: 4px;
-            width: 20px;
-            height: 20px;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            min-width: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
           "
           @mouseenter="${(e: MouseEvent) => {
             const el = e.currentTarget as HTMLElement;
-            el.style.color = '#ef5350';
-            el.style.background = 'rgba(239, 83, 80, 0.1)';
+            el.style.color = '#fff';
+            el.style.background = '#ef5350';
+            el.style.borderColor = '#ef5350';
+            el.style.transform = 'scale(1.1)';
           }}"
           @mouseleave="${(e: MouseEvent) => {
             const el = e.currentTarget as HTMLElement;
-            el.style.color = '#555';
-            el.style.background = 'transparent';
+            el.style.color = '#888';
+            el.style.background = 'rgba(255, 255, 255, 0.05)';
+            el.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            el.style.transform = 'scale(1)';
           }}"
         >✕</button>
         <!-- Statistics Table -->
