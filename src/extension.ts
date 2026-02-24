@@ -2,18 +2,78 @@ import * as vscode from "vscode";
 import { info, initLog } from "./log";
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "serialport";
+import { SidebarProvider } from "./sidebarProvider";
 
 let panel: vscode.WebviewPanel | undefined;
+let sidebarProvider: SidebarProvider | undefined;
 let port: SerialPort | undefined;
 let reconnectTimer: NodeJS.Timeout | undefined;
 let lastDeviceId: { vendorId?: string; productId?: string; serialNumber?: string; path?: string } | undefined;
 let lastBaudRate: number = 115200;
 let isMonitoring: boolean = false;
+let extensionContext: vscode.ExtensionContext;
 
 export async function activate(context: vscode.ExtensionContext) {
 	initLog();
+	extensionContext = context;
 
 	const PANEL_STATE_KEY = 'serialplotter.panelOpen';
+
+	// Register sidebar provider
+	sidebarProvider = new SidebarProvider(context.extensionUri);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider)
+	);
+
+	// Handle config changes from sidebar
+	sidebarProvider.onVariableConfigChanged = (config) => {
+		// Forward to main panel
+		panel?.webview.postMessage({
+			type: "sidebar-config-changed",
+			variableConfig: config
+		});
+	};
+
+	// Handle settings save from sidebar
+	sidebarProvider.onSaveSettings = (settings) => {
+		context.globalState.update('serialplotter.defaultBaudRate', settings.defaultBaudRate);
+		context.globalState.update('serialplotter.autoVariableUpdateOnStart', settings.autoVariableUpdateOnStart);
+		context.globalState.update('serialplotter.defaultScreen', settings.defaultScreen);
+		context.globalState.update('serialplotter.defaultSidebarVisible', settings.defaultSidebarVisible);
+		// Apply immediately to open panel
+		panel?.webview.postMessage({
+			type: "apply-defaults",
+			defaultBaudRate: settings.defaultBaudRate,
+			autoVariableUpdateOnStart: settings.autoVariableUpdateOnStart,
+			defaultScreen: settings.defaultScreen,
+			defaultSidebarVisible: settings.defaultSidebarVisible
+		});
+	};
+
+	// Handle settings request from sidebar
+	sidebarProvider.onRequestSettings = () => {
+		const defaultBaudRate = context.globalState.get<number>('serialplotter.defaultBaudRate', 115200);
+		const autoVariableUpdateOnStart = context.globalState.get<boolean>('serialplotter.autoVariableUpdateOnStart', true);
+		const defaultScreen = context.globalState.get<string>('serialplotter.defaultScreen', 'plot') as 'plot' | 'raw';
+		const defaultSidebarVisible = context.globalState.get<boolean>('serialplotter.defaultSidebarVisible', true);
+		sidebarProvider?.sendSettings({ defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible });
+	};
+
+	// Handle reset buffer from sidebar
+	sidebarProvider.onResetBuffer = () => {
+		// Forward to main panel
+		panel?.webview.postMessage({
+			type: "sidebar-reset-buffer"
+		});
+	};
+
+	// Handle drag start from sidebar - forward to main panel for cross-webview drag
+	sidebarProvider.onDragStart = (variableKey) => {
+		panel?.webview.postMessage({
+			type: "sidebar-drag-start",
+			variableKey: variableKey
+		});
+	};
 
 	function openPanel() {
 		if (panel) {
@@ -212,6 +272,24 @@ async function processProtocolMessage(message: ProtocolRequests) {
 					   panel?.webview.postMessage({ type: 'save-csv-result', success: false });
 			   }
 			   break;
+	   }
+	   case "update-sidebar-variables": {
+			// Forward variable updates to the sidebar provider
+			if (sidebarProvider) {
+				sidebarProvider.updateVariables(
+					message.variableConfig,
+					new Map(message.variableMap)
+				);
+			}
+			break;
+	   }
+	   case "request-defaults": {
+			const defaultBaudRate = extensionContext.globalState.get<number>('serialplotter.defaultBaudRate', 115200);
+			const autoVariableUpdateOnStart = extensionContext.globalState.get<boolean>('serialplotter.autoVariableUpdateOnStart', true);
+			const defaultScreen = extensionContext.globalState.get<string>('serialplotter.defaultScreen', 'plot');
+			const defaultSidebarVisible = extensionContext.globalState.get<boolean>('serialplotter.defaultSidebarVisible', true);
+			panel?.webview.postMessage({ type: "apply-defaults", defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible });
+			break;
 	   }
 	   default:
 			   info(`Unknown message: ${JSON.stringify(message, null, 2)}`);

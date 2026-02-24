@@ -37,23 +37,36 @@
     "views": {
       "serial-plotter": [
         {
-          "id": "serialplotter.welcome",
-          "name": "Muino Serial Plotter"
+          "type": "webview",
+          "id": "serialplotter.sidebar",
+          "name": "Variables",
+          "icon": "$(list-unordered)"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "serialplotter.welcome",
-        "contents": "Open Serial Plotter to visualize data from your serial ports.\n[Open Serial Plotter](command:serialplotter.open)"
+    "configuration": {
+      "title": "Serial Plotter",
+      "properties": {
+        "serialplotter.defaultBaudRate": {
+          "type": "number",
+          "default": 115200,
+          "description": "Default baud rate auto-selected when Serial Plotter opens.",
+          "enum": [110, 300, 600, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200, 128000, 256000, 460800, 921600]
+        },
+        "serialplotter.autoVariableUpdateOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether Auto Variable Update is enabled when Serial Plotter opens."
+        }
       }
-    ]
+    }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build-extension -- --minify && npm run build-webview -- --minify",
+    "vscode:prepublish": "npm run build-extension -- --minify && npm run build-webview -- --minify && npm run build-sidebar -- --minify",
     "build-extension": "esbuild ./src/extension.ts --bundle --outfile=build/main.js --external:vscode --format=cjs --platform=node",
     "build-webview": "esbuild ./src/webview.ts --bundle --outfile=build/webview.js --format=iife --platform=browser",
-    "watch": "concurrently \"npm run copy-prebuilds\" \"npm run build-extension -- --watch --sourcemap=inline\" \"npm run build-webview -- --watch --sourcemap=inline\"",
+    "build-sidebar": "esbuild ./src/sidebarWebview.ts --bundle --outfile=build/sidebar.js --format=iife --platform=browser",
+    "watch": "concurrently \"npm run copy-prebuilds\" \"npm run build-extension -- --watch --sourcemap=inline\" \"npm run build-webview -- --watch --sourcemap=inline\" \"npm run build-sidebar -- --watch --sourcemap=inline\"",
     "copy-prebuilds": "cp -r node_modules/@serialport/bindings-cpp/prebuilds ./",
     "package": "npm run copy-prebuilds && vsce package",
     "publish": "npm run copy-prebuilds && npm run vscode:prepublish && vsce publish",

@@ -69,6 +69,13 @@ export class PlotScreenFast extends LitElement {
   private startDragX = 0;
   private startScrollOffset = 0;
 
+  // For cross-webview drag-and-drop from VS Code sidebar
+  public sidebarDraggedVariable: string | null = null;
+
+  // Bound cross-webview drag handlers (mousemove for feedback, mouseup for drop)
+  private boundHandleSidebarDragMouseMove = this.handleSidebarDragMouseMove.bind(this);
+  private boundHandleSidebarDragMouseUp = this.handleSidebarDragMouseUp.bind(this);
+
   @property()
   padding = 10;
   @property()
@@ -349,47 +356,143 @@ export class PlotScreenFast extends LitElement {
   // Drag and drop handlers
   handleDragOver(event: DragEvent) {
     event.preventDefault();
+    event.stopPropagation();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
     }
+    // Add visual feedback
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = '2px dashed #4a7fc1';
+      this.canvasDiv.style.outlineOffset = '-2px';
+    }
+  }
+
+  // Handle drag leave to remove visual feedback
+  private handleDragLeave = (event: DragEvent) => {
+    event.preventDefault();
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = 'none';
+    }
+  }
+
+  // Show visual feedback when mouse moves over plot during cross-webview sidebar drag
+  private handleSidebarDragMouseMove(_event: MouseEvent) {
+    if (!this.sidebarDraggedVariable) return;
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = '2px dashed #4a7fc1';
+      this.canvasDiv.style.outlineOffset = '-2px';
+    }
+  }
+
+  // Remove visual feedback when mouse leaves the plot during cross-webview sidebar drag
+  private handleSidebarDragMouseLeave = (_event: MouseEvent) => {
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = 'none';
+    }
+  }
+
+  // Drop variable when mouse is released over plot during cross-webview sidebar drag
+  private handleSidebarDragMouseUp(_event: MouseEvent) {
+    if (!this.sidebarDraggedVariable) return;
+    const key = this.sidebarDraggedVariable;
+    this.addVariableFromSidebar(key);
+  }
+
+  // Public method called from webview-level window mouseup for cross-webview drag
+  addVariableFromSidebar(variableKey: string) {
+    // Remove visual feedback
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = 'none';
+    }
+    
+    if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
+      // Find the maximum data length across all variables
+      const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+
+      // Get the current data for the variable
+      let varData = this.data.get(variableKey) ?? [];
+
+      // If this variable has less data than others, pad it with null values
+      if (varData.length < maxLength) {
+        const nullPadding = new Array(maxLength - varData.length).fill(null);
+        varData = [...nullPadding, ...varData];
+        this.data.set(variableKey, varData);
+      }
+
+      // Add to selected variables if not already there
+      const newSet = new Set(this.selectedVariables);
+      if (!newSet.has(variableKey)) {
+        newSet.add(variableKey);
+        this.selectedVariables = newSet;
+      }
+      // Always redraw on drop so the graph updates immediately
+      this.renderData();
+      
+      this.dispatchEvent(new CustomEvent('variable-dropped', {
+        detail: { variableKey },
+        bubbles: true,
+        composed: true
+      }));
+    }
+
+    // Clear the sidebar dragged variable after drop
+    this.sidebarDraggedVariable = null;
   }
 
   handleDrop(event: DragEvent) {
     event.preventDefault();
-    if (event.dataTransfer) {
-      const variableKey = event.dataTransfer.getData('application/x-variable-key') ||
-        event.dataTransfer.getData('text/plain');
-
-      if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
-        // Find the maximum data length across all variables
-        const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
-
-        // Get the current data for the variable
-        let varData = this.data.get(variableKey) ?? [];
-
-        // If this variable has less data than others, pad it with null values
-        // This makes it sync with the timeline and start plotting from current position
-        if (varData.length < maxLength) {
-          const nullPadding = new Array(maxLength - varData.length).fill(null);
-          varData = [...nullPadding, ...varData];
-          this.data.set(variableKey, varData);
-        }
-
-        // Toggle the variable selection (show it if hidden, or just keep it shown)
-        const newSet = new Set(this.selectedVariables);
-        if (!newSet.has(variableKey)) {
-          newSet.add(variableKey);
-          this.selectedVariables = newSet;
-          this.renderData();
-        }
-        // Could also dispatch an event to notify that a variable was dropped
-        this.dispatchEvent(new CustomEvent('variable-dropped', {
-          detail: { variableKey },
-          bubbles: true,
-          composed: true
-        }));
-      }
+    event.stopPropagation();
+    
+    // Remove visual feedback
+    if (this.canvasDiv) {
+      this.canvasDiv.style.outline = 'none';
     }
+    
+    let variableKey: string | null = null;
+
+    // Try to get from dataTransfer first (works for same-webview drag)
+    if (event.dataTransfer) {
+      variableKey = event.dataTransfer.getData('application/x-variable-key') ||
+        event.dataTransfer.getData('text/plain') || null;
+    }
+
+    // Fallback to sidebar dragged variable (for cross-webview drag from VS Code sidebar)
+    if (!variableKey && this.sidebarDraggedVariable) {
+      variableKey = this.sidebarDraggedVariable;
+    }
+
+    if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
+      // Find the maximum data length across all variables
+      const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+
+      // Get the current data for the variable
+      let varData = this.data.get(variableKey) ?? [];
+
+      // If this variable has less data than others, pad it with null values
+      // This makes it sync with the timeline and start plotting from current position
+      if (varData.length < maxLength) {
+        const nullPadding = new Array(maxLength - varData.length).fill(null);
+        varData = [...nullPadding, ...varData];
+        this.data.set(variableKey, varData);
+      }
+
+      // Toggle the variable selection (show it if hidden, or just keep it shown)
+      const newSet = new Set(this.selectedVariables);
+      if (!newSet.has(variableKey)) {
+        newSet.add(variableKey);
+        this.selectedVariables = newSet;
+        this.renderData();
+      }
+      // Could also dispatch an event to notify that a variable was dropped
+      this.dispatchEvent(new CustomEvent('variable-dropped', {
+        detail: { variableKey },
+        bubbles: true,
+        composed: true
+      }));
+    }
+
+    // Clear the sidebar dragged variable after drop
+    this.sidebarDraggedVariable = null;
   }
 
 
@@ -443,7 +546,11 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.removeEventListener("mouseleave", this.boundHandleMouseUp);
       this.canvasDiv.removeEventListener("wheel", this.boundHandleCanvasWheel);
       this.canvasDiv.removeEventListener("dragover", this.boundHandleDragOver);
+      this.canvasDiv.removeEventListener("dragleave", this.handleDragLeave);
       this.canvasDiv.removeEventListener("drop", this.boundHandleDrop);
+      this.canvasDiv.removeEventListener("mousemove", this.boundHandleSidebarDragMouseMove);
+      this.canvasDiv.removeEventListener("mouseleave", this.handleSidebarDragMouseLeave);
+      this.canvasDiv.removeEventListener("mouseup", this.boundHandleSidebarDragMouseUp);
     }
 
     // Clean up ResizeObserver
@@ -551,7 +658,12 @@ export class PlotScreenFast extends LitElement {
 
       // Add drag and drop event listeners
       this.canvasDiv.addEventListener("dragover", this.boundHandleDragOver);
+      this.canvasDiv.addEventListener("dragleave", this.handleDragLeave);
       this.canvasDiv.addEventListener("drop", this.boundHandleDrop);
+      // Cross-webview sidebar drag: use regular mouse events (not drag events) for reliable detection
+      this.canvasDiv.addEventListener("mousemove", this.boundHandleSidebarDragMouseMove);
+      this.canvasDiv.addEventListener("mouseleave", this.handleSidebarDragMouseLeave);
+      this.canvasDiv.addEventListener("mouseup", this.boundHandleSidebarDragMouseUp);
     }
 
     // DON'T auto-select variables - graphs start empty
@@ -621,48 +733,46 @@ export class PlotScreenFast extends LitElement {
     const labelPadding = 24;
     const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
 
-    // Auto-scroll logic: update scroll position to show latest data
-    // but preserve user's zoom level (visibleSamples)
+    // Auto-scroll logic: calculate scroll position and visible samples
+    // Use local variables to avoid triggering reactive state updates during render
+    let effectiveVisibleSamples = this.visibleSamples;
+    let effectiveScrollOffset = this.scrollOffset;
+
     if (this.autoBurstFit) {
-      // Auto-fit to the current burst
+      // Auto-fit to the current burst - calculate locally to avoid state updates
       const burstLength = maxSamples - this.burstStartIndex;
-      // Ensure we show at least MIN_VISIBLE_SAMPLES, but if burst is smaller, we might want to zoom in?
-      // Actually, let's just fit the burst. If burst is 0, show MIN.
-      this.visibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, burstLength);
-      // Center the view on the burst
-      this.scrollOffset = this.burstStartIndex + this.visibleSamples / 2;
-      
-      // If the burst is smaller than MIN_VISIBLE_SAMPLES, we might be showing some empty space or previous data.
-      // To strictly show only the burst (if possible), we'd need to allow visibleSamples < MIN, but that might break things.
-      // So we stick to MIN.
+      effectiveVisibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, burstLength);
+      effectiveScrollOffset = this.burstStartIndex + effectiveVisibleSamples / 2;
     } else if (this.autoScroll) {
       // Snap to show the latest data (no smooth scrolling to avoid render issues)
-      const targetScrollOffset = maxSamples - this.visibleSamples / 2;
+      const targetScrollOffset = maxSamples - effectiveVisibleSamples / 2;
 
       // Clamp scroll offset to valid range
-      const minOffset = this.visibleSamples / 2;
-      const maxOffset = Math.max(minOffset, maxSamples - this.visibleSamples / 2);
-      this.scrollOffset = Math.max(minOffset, Math.min(maxOffset, targetScrollOffset));
+      const minOffset = effectiveVisibleSamples / 2;
+      const maxOffset = Math.max(minOffset, maxSamples - effectiveVisibleSamples / 2);
+      effectiveScrollOffset = Math.max(minOffset, Math.min(maxOffset, targetScrollOffset));
+      this.scrollOffset = effectiveScrollOffset;
     } else {
       // When auto-scroll is off, if we have fewer samples than visible window,
       // clamp scrollOffset to ensure samples stay in view
-      if (maxSamples < this.visibleSamples) {
-        const minScroll = this.visibleSamples / 2;
-        const maxScroll = maxSamples - this.visibleSamples / 2;
+      if (maxSamples < effectiveVisibleSamples) {
+        const minScroll = effectiveVisibleSamples / 2;
+        const maxScroll = maxSamples - effectiveVisibleSamples / 2;
         if (maxScroll < minScroll) {
           // Very few samples - center them
-          this.scrollOffset = this.visibleSamples / 2;
+          effectiveScrollOffset = effectiveVisibleSamples / 2;
         } else {
-          this.scrollOffset = Math.max(minScroll, Math.min(maxScroll, this.scrollOffset));
+          effectiveScrollOffset = Math.max(minScroll, Math.min(maxScroll, this.scrollOffset));
         }
+        this.scrollOffset = effectiveScrollOffset;
       }
     }
 
     const startSample = Math.max(
       this.autoBurstFit ? this.burstStartIndex : 0,
-      Math.floor(this.scrollOffset - this.visibleSamples / 2)
+      Math.floor(effectiveScrollOffset - effectiveVisibleSamples / 2)
     );
-    const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
+    const endSample = Math.min(Math.ceil(effectiveScrollOffset + effectiveVisibleSamples / 2), maxSamples - 1);
 
     // --- Stats calculation for visible window (optimized single-pass) ---
     const newStats = Array.from(this.data.entries())
@@ -762,8 +872,9 @@ export class PlotScreenFast extends LitElement {
     const yAxisOffset = 60; // Increased offset for Y-axis labels
 
     // Ensure minimum visible samples of 10 for single data points
-    const effectiveVisibleSamples = Math.max(10, this.visibleSamples);
-    const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (effectiveVisibleSamples - 1);
+    // Note: effectiveVisibleSamples is already calculated above when autoBurstFit is enabled
+    const finalVisibleSamples = Math.max(10, effectiveVisibleSamples);
+    const pixelsPerSample = (w - padding * 2 - yAxisOffset) / (finalVisibleSamples - 1);
 
     // Draw Y-axis grid and labels
     const labelHeight = 50;
@@ -837,10 +948,10 @@ export class PlotScreenFast extends LitElement {
     // Draw X-axis labels
     const labelWidthPx = 96;
     const numXLabels = Math.floor(w / labelWidthPx);
-    const step = Math.ceil(effectiveVisibleSamples / numXLabels);
+    const step = Math.ceil(finalVisibleSamples / numXLabels);
 
     for (let i = startSample; i <= endSample; i++) {
-      const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
+      const x = padding + yAxisOffset + (i - effectiveScrollOffset + finalVisibleSamples / 2) * pixelsPerSample;
       if (x >= padding + yAxisOffset && x <= w - padding && i % step === 0) {
         const text = new PIXI.Text({
           text: (this.autoBurstFit ? i - this.burstStartIndex : i).toString(),
@@ -885,7 +996,7 @@ export class PlotScreenFast extends LitElement {
 
         if (isValidPoint) {
           pointCount++;
-          const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
+          const x = padding + yAxisOffset + (i - effectiveScrollOffset + finalVisibleSamples / 2) * pixelsPerSample;
           const y = h - labelPadding - padding - (value - yMin) * scaleY;
 
           // Draw the point even if slightly outside bounds to ensure line continuity
@@ -914,7 +1025,7 @@ export class PlotScreenFast extends LitElement {
           const isValidPoint = value != null && !isNaN(value) && isFinite(value);
 
           if (isValidPoint) {
-            const x = padding + yAxisOffset + (i - this.scrollOffset + effectiveVisibleSamples / 2) * pixelsPerSample;
+            const x = padding + yAxisOffset + (i - effectiveScrollOffset + finalVisibleSamples / 2) * pixelsPerSample;
             const y = h - labelPadding - padding - (value - yMin) * scaleY;
 
             // Draw a circle for the point
@@ -959,16 +1070,16 @@ export class PlotScreenFast extends LitElement {
       if (typeof value === 'string') return value; // Return 'N/A' as-is
       if (!isFinite(value) || isNaN(value)) return 'N/A';
 
-      // Round to 4 significant digits to avoid floating point precision issues
+      // Round to 6 significant digits
       const absValue = Math.abs(value);
       if (absValue === 0) return '0';
-      if (absValue >= 1000 || absValue < 0.001) {
+      if (absValue >= 1e6 || absValue < 0.0001) {
         // Use scientific notation for very large or very small numbers
-        return value.toExponential(3);
+        return value.toExponential(5);
       }
-      // For normal range, use fixed decimal with up to 4 significant figures
-      const decimalPlaces = Math.max(0, 4 - Math.floor(Math.log10(absValue)) - 1);
-      return value.toFixed(Math.min(decimalPlaces, 4));
+      // For normal range, use fixed decimal with up to 6 significant figures
+      const decimalPlaces = Math.max(0, 6 - Math.floor(Math.log10(absValue)) - 1);
+      return value.toFixed(Math.min(decimalPlaces, 6));
     };
 
     return html`
@@ -1013,8 +1124,8 @@ export class PlotScreenFast extends LitElement {
           }}"
         >✕</button>
         <!-- Statistics Table -->
-        <div style="margin-bottom: 0.3rem; overflow-x: auto; border-radius: 8px; background: rgba(0, 0, 0, 0.2); max-width: fit-content;">
-          <table style="width: auto; border-collapse: separate; border-spacing: 0; font-size: 0.8rem; font-family: 'Segoe UI', system-ui, sans-serif;">
+        <div style="margin-bottom: 0.3rem; border-radius: 8px; background: rgba(0, 0, 0, 0.2); width: 100%;">
+          <table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8rem; font-family: 'Segoe UI', system-ui, sans-serif;">
             <thead>
               <tr style="background: linear-gradient(to bottom, #2d2d2d, #252525); color: #b0b0b0;">
                 <th style="padding: 0.5rem 0.3rem; text-align: center; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #404040; width: 35px; white-space: nowrap;"></th>

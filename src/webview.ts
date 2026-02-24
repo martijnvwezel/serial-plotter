@@ -53,6 +53,9 @@ class SerialPlotterApp extends LitElement {
 	autoVariableUpdate: boolean = true;
 
 	@state()
+	private defaultBaudRate: number = 115200;
+
+	@state()
 	commandInput: string = "";
 
 	@state()
@@ -84,6 +87,9 @@ class SerialPlotterApp extends LitElement {
 	private variableConfig: Record<string, { color: string; visablename: string }> = {};
 	private variableOrder: string[] = [];
 	private headerConfigured: boolean = false;
+
+	// For cross-webview drag-and-drop: stores variable key being dragged from VS Code sidebar
+	private sidebarDraggedVariable: string | null = null;
 
 	private colorPalette = [
 		"#f92672", // pink
@@ -129,6 +135,13 @@ class SerialPlotterApp extends LitElement {
 					if (plotFast && typeof plotFast.setVariableConfig === 'function') {
 						plotFast.setVariableConfig(this.variableConfig);
 					}
+				});
+				
+				// Send to VS Code sidebar
+				vscode.postMessage({
+					type: "update-sidebar-variables",
+					variableConfig: this.variableConfig,
+					variableMap: Array.from(this.variableMap.entries())
 				});
 			});
 		}
@@ -262,9 +275,91 @@ class SerialPlotterApp extends LitElement {
 			if (message.type == "data") {
 				this.handleSerialData(message.text);
 			}
+			// Handle config changes from VS Code sidebar
+			if (message.type == "sidebar-config-changed") {
+				this.variableConfig = message.variableConfig;
+				// If config is cleared (empty), reset headerConfigured flag
+				if (Object.keys(this.variableConfig).length === 0) {
+					this.headerConfigured = false;
+				}
+				// Update internal sidebar
+				const sidebar = this.renderRoot.querySelector('sidebar-view') as any;
+				if (sidebar && typeof sidebar.setVariableConfig === 'function') {
+					sidebar.setVariableConfig(this.variableConfig);
+				}
+				// Forward to all plot-screen-fast instances
+				const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
+				plotFastElements.forEach((plotFast: any) => {
+					if (plotFast && typeof plotFast.setVariableConfig === 'function') {
+						plotFast.setVariableConfig(this.variableConfig);
+					}
+				});
+				this.requestUpdate();
+			}
+			// Handle reset buffer from VS Code sidebar
+			if (message.type == "sidebar-reset-buffer") {
+				this.handleClearBuffer();
+				this.variableConfig = {};
+				this.variableMap = new Map();
+				this.headerConfigured = false;
+				// Update internal sidebar
+				const sidebar = this.renderRoot.querySelector('sidebar-view') as any;
+				if (sidebar && typeof sidebar.setVariableConfig === 'function') {
+					sidebar.setVariableConfig(this.variableConfig);
+					sidebar.setVariableMap(this.variableMap);
+				}
+				// Clear all plot screens
+				const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
+				plotFastElements.forEach((plotFast: any) => {
+					if (plotFast && typeof plotFast.setVariableConfig === 'function') {
+						plotFast.setVariableConfig(this.variableConfig);
+						plotFast.setData(this.variableMap);
+					}
+				});
+				this.requestUpdate();
+			}
+			// Handle drag start from VS Code sidebar for cross-webview drag support
+			if (message.type == "sidebar-drag-start") {
+				const variableKey = (message as any).variableKey;
+				this.sidebarDraggedVariable = variableKey;
+				// Also set on plots so the dragover visual feedback works
+				const plotFastElements = this.renderRoot.querySelectorAll('plot-screen-fast');
+				plotFastElements.forEach((plotFast: any) => {
+					if (plotFast) plotFast.sidebarDraggedVariable = variableKey;
+				});
+				// Window-level mouseup handler is the reliable drop trigger for cross-webview drags
+				const onWindowMouseUp = (e: MouseEvent) => {
+					window.removeEventListener('mouseup', onWindowMouseUp);
+					const key = this.sidebarDraggedVariable;
+					this.sidebarDraggedVariable = null;
+					const plots = this.renderRoot.querySelectorAll('plot-screen-fast');
+					plots.forEach((p: any) => { if (p) p.sidebarDraggedVariable = null; });
+					if (!key) return;
+					// Find which plot canvas is under the pointer
+					const target = document.elementFromPoint(e.clientX, e.clientY);
+					if (!target) return;
+					const plotEl = target.closest('plot-screen-fast') as any;
+					// Guard: only drop if canvas-level mouseup hasn't already handled it
+					if (plotEl && plotEl.sidebarDraggedVariable !== null && typeof plotEl.addVariableFromSidebar === 'function') {
+						plotEl.addVariableFromSidebar(key);
+					}
+				};
+				window.addEventListener('mouseup', onWindowMouseUp);
+			}
+			// Handle default settings applied from extension
+			if (message.type == "apply-defaults") {
+				this.defaultBaudRate = (message as any).defaultBaudRate ?? 115200;
+				this.autoVariableUpdate = (message as any).autoVariableUpdateOnStart ?? true;
+				this.screen = (message as any).defaultScreen ?? 'plot';
+				this.sidebarVisible = (message as any).defaultSidebarVisible ?? true;
+				// Apply baud rate to select element if it exists
+				const baudSelect = this.querySelector<HTMLSelectElement>('#baud');
+				if (baudSelect) baudSelect.value = String(this.defaultBaudRate);
+			}
 		};
 		window.addEventListener("message", this._messageCallback);
 		vscode.postMessage({ type: "ports" });
+		vscode.postMessage({ type: "request-defaults" });
 	}
 
 	handleFakeData() {
@@ -524,6 +619,13 @@ class SerialPlotterApp extends LitElement {
 			sidebar.setVariableConfig(this.variableConfig);
 			sidebar.setVariableMap(this.variableMap);
 			sidebar.render();
+			
+			// Send to VS Code sidebar
+			vscode.postMessage({
+				type: "update-sidebar-variables",
+				variableConfig: this.variableConfig,
+				variableMap: Array.from(this.variableMap.entries())
+			});
 		}
 
 		// Update all plot screens with new data
@@ -856,7 +958,7 @@ class SerialPlotterApp extends LitElement {
 			   </div>
 			   <div class="selector-group">
 				  <span class="selector-label">Baud Rate</span>
-				  <select id="baud" default="115200" ?disabled="${this.running}">
+				  <select id="baud" ?disabled="${this.running}">
 					 <option value="110">110</option>
 					 <option value="300">300</option>
 					 <option value="600">600</option>
@@ -868,7 +970,7 @@ class SerialPlotterApp extends LitElement {
 					 <option value="19200">19200</option>
 					 <option value="38400">38400</option>
 					 <option value="57600">57600</option>
-					 <option value="115200" selected>115200</option>
+					 <option value="115200" ?selected="${this.defaultBaudRate === 115200}">115200</option>
 					 <option value="128000">128000</option>
 					 <option value="256000">256000</option>
 					 <option value="460800">460800</option>
@@ -917,8 +1019,8 @@ class SerialPlotterApp extends LitElement {
 
 			   <button class="toggle-btn" @click="${this.handleScreenToggle}" title="${this.screen === 'raw' ? 'Switch to graph visualization' : 'Switch to serial monitor (text view)'}">
 				  ${this.screen === 'raw'
-				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="#aaa" stroke-width="2" fill="none"/></svg> Show Graph`
-				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke="#aaa" stroke-width="2" fill="none"/><line x1="7" y1="8" x2="17" y2="8" stroke="#aaa" stroke-width="2"/><line x1="7" y1="12" x2="17" y2="12" stroke="#aaa" stroke-width="2"/><line x1="7" y1="16" x2="17" y2="16" stroke="#aaa" stroke-width="2"/></svg> Show Serial Monitor`}
+				? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="#aaa" stroke-width="2" fill="none"/></svg> Graph`
+				: html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" stroke="#aaa" stroke-width="2" fill="none"/><line x1="7" y1="8" x2="17" y2="8" stroke="#aaa" stroke-width="2"/><line x1="7" y1="12" x2="17" y2="12" stroke="#aaa" stroke-width="2"/><line x1="7" y1="16" x2="17" y2="16" stroke="#aaa" stroke-width="2"/></svg> Monitor`}
 			   </button>
 			   <button class="toggle-btn" @click="${this.handleAutoVariableUpdateToggle}" title="Toggle auto variable update">
 				  ${this.autoVariableUpdate

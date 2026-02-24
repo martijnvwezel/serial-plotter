@@ -62,5 +62,37 @@ interface SendCommandRequest {
 	command: string;
 }
 
-type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest | ReconnectRequest | SendCommandRequest;
-type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse | ConnectionStatusResponse;
+interface UpdateSidebarVariablesRequest {
+	type: "update-sidebar-variables";
+	variableConfig: Record<string, { color: string; visablename: string }>;
+	variableMap: Array<[string, number[]]>;
+}
+
+interface SidebarConfigChangedResponse {
+	type: "sidebar-config-changed";
+	variableConfig: Record<string, { color: string; visablename: string }>;
+}
+
+interface SidebarResetBufferResponse {
+	type: "sidebar-reset-buffer";
+}
+
+interface SidebarDragStartResponse {
+	type: "sidebar-drag-start";
+	variableKey: string;
+}
+
+interface RequestDefaultsRequest {
+	type: "request-defaults";
+}
+
+interface ApplyDefaultsResponse {
+	type: "apply-defaults";
+	defaultBaudRate: number;
+	autoVariableUpdateOnStart: boolean;
+	defaultScreen: 'plot' | 'raw';
+	defaultSidebarVisible: boolean;
+}
+
+type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest | ReconnectRequest | SendCommandRequest | UpdateSidebarVariablesRequest | RequestDefaultsRequest;
+type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse | ConnectionStatusResponse | SidebarConfigChangedResponse | SidebarResetBufferResponse | SidebarDragStartResponse | ApplyDefaultsResponse;
