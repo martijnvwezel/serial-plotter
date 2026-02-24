@@ -15,6 +15,7 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 - **CSV export** - save your data for further analysis
 - **WebGL acceleration** - smooth plotting even with high data rates
 - **Fake data simulation** - test without hardware
+- **VS Code native sidebar** *(experimental)* - manage variables, set defaults, and drag variables to plots directly from the VS Code activity bar
 
 ## 📸 Screenshots
 
@@ -23,6 +24,9 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 
 ### Variable Management Sidebar  
 ![Statistics View](docs/statistics.png)
+
+### VS Code Native Sidebar *(experimental)*
+![VS Code Sidebar](docs/vscode_sidebar.png)
 
 ### Raw Data Monitoring
 ![Raw Data View](docs/raw_data.png)
