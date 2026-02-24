@@ -18,6 +18,9 @@ export class PlotScreenFast extends LitElement {
   @property({ type: Boolean })
   startEmpty: boolean = false;
 
+  @property({ type: String })
+  initialXMode: 'scroll' | 'burst' | 'none' = 'scroll';
+
   @state()
   dataColors: Map<string, string> = new Map();
   @state()
@@ -634,6 +637,11 @@ export class PlotScreenFast extends LitElement {
         changedProps.has('autoBurstFit')) {
       this.renderData();
     }
+
+    // Watch for changes to initialXMode property (when parent updates defaults)
+    if (changedProps.has('initialXMode')) {
+      this.setXMode(this.initialXMode);
+    }
   }
 
   async firstUpdated(_changedProperties: PropertyValueMap<any> | Map<PropertyKey, unknown>) {
@@ -668,6 +676,31 @@ export class PlotScreenFast extends LitElement {
 
     // DON'T auto-select variables - graphs start empty
 
+    // Apply initial X-axis mode from property
+    this.setXMode(this.initialXMode);
+
+    this.renderData();
+  }
+
+  setXMode(mode: 'scroll' | 'burst' | 'none') {
+    if (mode === 'burst') {
+      this.autoBurstFit = true;
+      this.autoScroll = false;
+      // When switching to burst mode, mark current data length as burst start
+      // so next data will be within the burst window
+      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      this.burstStartIndex = maxSamples;
+      this.lastSampleTime = Date.now();
+    } else if (mode === 'none') {
+      this.autoScroll = false;
+      this.autoBurstFit = false;
+    } else {
+      this.autoScroll = true;
+      this.autoBurstFit = false;
+    }
+    // Force Lit to re-render the template with updated state
+    this.requestUpdate();
+    // Force re-render with new mode
     this.renderData();
   }
 

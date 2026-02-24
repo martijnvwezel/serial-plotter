@@ -26,7 +26,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     public onVariableConfigChanged?: (config: Record<string, { color: string; visablename: string }>) => void;
     public onResetBuffer?: () => void;
     public onDragStart?: (variableKey: string) => void;
-    public onSaveSettings?: (settings: { defaultBaudRate: number; autoVariableUpdateOnStart: boolean; defaultScreen: 'plot' | 'raw'; defaultSidebarVisible: boolean }) => void;
+    public onSaveSettings?: (settings: { defaultBaudRate: number; autoVariableUpdateOnStart: boolean; defaultScreen: 'plot' | 'raw'; defaultSidebarVisible: boolean; defaultXMode: 'scroll' | 'burst' | 'none' }) => void;
     public onRequestSettings?: () => void;
 
     constructor(extensionUri: vscode.Uri) {
@@ -70,7 +70,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                     break;
                 case "save-settings":
                     if (this.onSaveSettings) {
-                        this.onSaveSettings({ defaultBaudRate: message.defaultBaudRate, autoVariableUpdateOnStart: message.autoVariableUpdateOnStart, defaultScreen: message.defaultScreen, defaultSidebarVisible: message.defaultSidebarVisible });
+                        this.onSaveSettings({ defaultBaudRate: message.defaultBaudRate, autoVariableUpdateOnStart: message.autoVariableUpdateOnStart, defaultScreen: message.defaultScreen, defaultSidebarVisible: message.defaultSidebarVisible, defaultXMode: message.defaultXMode ?? 'scroll' });
                     }
                     break;
                 case "request-settings":
@@ -98,7 +98,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     // Send current settings to sidebar webview
-    public sendSettings(settings: { defaultBaudRate: number; autoVariableUpdateOnStart: boolean; defaultScreen: 'plot' | 'raw'; defaultSidebarVisible: boolean }): void {
+    public sendSettings(settings: { defaultBaudRate: number; autoVariableUpdateOnStart: boolean; defaultScreen: 'plot' | 'raw'; defaultSidebarVisible: boolean; defaultXMode: 'scroll' | 'burst' | 'none' }): void {
         if (this._view) {
             this._view.webview.postMessage({ type: "settings-response", ...settings });
         }

@@ -56,6 +56,9 @@ class SerialPlotterApp extends LitElement {
 	private defaultBaudRate: number = 115200;
 
 	@state()
+	private defaultXMode: 'scroll' | 'burst' | 'none' = 'scroll';
+
+	@state()
 	commandInput: string = "";
 
 	@state()
@@ -352,6 +355,8 @@ class SerialPlotterApp extends LitElement {
 				this.autoVariableUpdate = (message as any).autoVariableUpdateOnStart ?? true;
 				this.screen = (message as any).defaultScreen ?? 'plot';
 				this.sidebarVisible = (message as any).defaultSidebarVisible ?? true;
+				this.defaultXMode = (message as any).defaultXMode ?? 'scroll';
+				// Lit will automatically pass the updated defaultXMode to plots via .initialXMode binding
 				// Apply baud rate to select element if it exists
 				const baudSelect = this.querySelector<HTMLSelectElement>('#baud');
 				if (baudSelect) baudSelect.value = String(this.defaultBaudRate);
@@ -1105,6 +1110,7 @@ class SerialPlotterApp extends LitElement {
 						.data=${this.variableMap}
 						.variableConfig=${this.variableConfig}
 						.startEmpty=${id !== 0}
+						.initialXMode=${this.defaultXMode}
 						@remove-plot=${() => this.handleRemovePlot(id)}
 					></plot-screen-fast>
 				`) : html`

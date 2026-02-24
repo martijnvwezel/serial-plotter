@@ -20,6 +20,7 @@ let settingsBaudRate: number = 115200;
 let settingsAutoVariableUpdate: boolean = true;
 let settingsDefaultScreen: 'plot' | 'raw' = 'plot';
 let settingsDefaultSidebarVisible: boolean = true;
+let settingsDefaultXMode: 'scroll' | 'burst' | 'none' = 'scroll';
 
 // Get the root element
 const root = document.getElementById("sidebar-root");
@@ -171,6 +172,14 @@ function render() {
                     <label style="font-size: 0.8rem; color: var(--vscode-foreground);">Show Sidebar</label>
                     <input type="checkbox" id="settings-sidebar-visible" ${settingsDefaultSidebarVisible ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px;" />
                 </div>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <label style="font-size: 0.8rem; color: var(--vscode-foreground);">X-Axis Mode</label>
+                    <select id="settings-xmode" style="background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; padding: 0.2rem 0.3rem; font-size: 0.8rem;">
+                        <option value="scroll" ${settingsDefaultXMode === 'scroll' ? 'selected' : ''}>Auto Scroll</option>
+                        <option value="burst" ${settingsDefaultXMode === 'burst' ? 'selected' : ''}>Auto Burst Fit</option>
+                        <option value="none" ${settingsDefaultXMode === 'none' ? 'selected' : ''}>Fixed</option>
+                    </select>
+                </div>
             </div>
             <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.75rem 0;" />
             <div style="text-align: center; padding: 0.5rem 0 0.25rem 0;">
@@ -307,6 +316,13 @@ function attachEventListeners() {
             saveSettings();
         });
     }
+    const xModeSelect = document.getElementById('settings-xmode') as HTMLSelectElement;
+    if (xModeSelect) {
+        xModeSelect.addEventListener('change', () => {
+            settingsDefaultXMode = xModeSelect.value as 'scroll' | 'burst' | 'none';
+            saveSettings();
+        });
+    }
 
     // Visible name changes
     document.querySelectorAll(".visiblename-input").forEach((input) => {
@@ -338,7 +354,8 @@ function saveSettings() {
         defaultBaudRate: settingsBaudRate,
         autoVariableUpdateOnStart: settingsAutoVariableUpdate,
         defaultScreen: settingsDefaultScreen,
-        defaultSidebarVisible: settingsDefaultSidebarVisible
+        defaultSidebarVisible: settingsDefaultSidebarVisible,
+        defaultXMode: settingsDefaultXMode
     });
 }
 
@@ -364,6 +381,7 @@ window.addEventListener("message", (event) => {
             settingsAutoVariableUpdate = message.autoVariableUpdateOnStart ?? true;
             settingsDefaultScreen = message.defaultScreen ?? 'plot';
             settingsDefaultSidebarVisible = message.defaultSidebarVisible ?? true;
+            settingsDefaultXMode = message.defaultXMode ?? 'scroll';
             render();
             break;
     }

@@ -40,13 +40,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		context.globalState.update('serialplotter.autoVariableUpdateOnStart', settings.autoVariableUpdateOnStart);
 		context.globalState.update('serialplotter.defaultScreen', settings.defaultScreen);
 		context.globalState.update('serialplotter.defaultSidebarVisible', settings.defaultSidebarVisible);
+		context.globalState.update('serialplotter.defaultXMode', settings.defaultXMode);
 		// Apply immediately to open panel
 		panel?.webview.postMessage({
 			type: "apply-defaults",
 			defaultBaudRate: settings.defaultBaudRate,
 			autoVariableUpdateOnStart: settings.autoVariableUpdateOnStart,
 			defaultScreen: settings.defaultScreen,
-			defaultSidebarVisible: settings.defaultSidebarVisible
+			defaultSidebarVisible: settings.defaultSidebarVisible,
+			defaultXMode: settings.defaultXMode
 		});
 	};
 
@@ -56,7 +58,8 @@ export async function activate(context: vscode.ExtensionContext) {
 		const autoVariableUpdateOnStart = context.globalState.get<boolean>('serialplotter.autoVariableUpdateOnStart', true);
 		const defaultScreen = context.globalState.get<string>('serialplotter.defaultScreen', 'plot') as 'plot' | 'raw';
 		const defaultSidebarVisible = context.globalState.get<boolean>('serialplotter.defaultSidebarVisible', true);
-		sidebarProvider?.sendSettings({ defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible });
+		const defaultXMode = context.globalState.get<string>('serialplotter.defaultXMode', 'scroll') as 'scroll' | 'burst' | 'none';
+		sidebarProvider?.sendSettings({ defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible, defaultXMode });
 	};
 
 	// Handle reset buffer from sidebar
@@ -288,7 +291,8 @@ async function processProtocolMessage(message: ProtocolRequests) {
 			const autoVariableUpdateOnStart = extensionContext.globalState.get<boolean>('serialplotter.autoVariableUpdateOnStart', true);
 			const defaultScreen = extensionContext.globalState.get<string>('serialplotter.defaultScreen', 'plot');
 			const defaultSidebarVisible = extensionContext.globalState.get<boolean>('serialplotter.defaultSidebarVisible', true);
-			panel?.webview.postMessage({ type: "apply-defaults", defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible });
+			const defaultXMode = extensionContext.globalState.get<string>('serialplotter.defaultXMode', 'scroll');
+			panel?.webview.postMessage({ type: "apply-defaults", defaultBaudRate, autoVariableUpdateOnStart, defaultScreen, defaultSidebarVisible, defaultXMode });
 			break;
 	   }
 	   default:
