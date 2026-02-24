@@ -2,7 +2,7 @@
   "name": "muino-serial-plotter",
   "displayName": "muino-serial-plotter",
   "description": "Plot data received via a serial port in a dedicated advance pane with analytics on the signals.",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "repository": "https://github.com/martijnvwezel/serial-plotter",
   "publisher": "muino",
   "icon": "icon.png",
@@ -21,7 +21,31 @@
       {
         "category": "Serial Plotter",
         "command": "serialplotter.open",
-        "title": "Open pane"
+        "title": "Open pane",
+        "icon": "$(graph)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "serial-plotter",
+          "title": "Serial Plotter",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "serial-plotter": [
+        {
+          "id": "serialplotter.welcome",
+          "name": "Muino Serial Plotter"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "serialplotter.welcome",
+        "contents": "Open Serial Plotter to visualize data from your serial ports.\n[Open Serial Plotter](command:serialplotter.open)"
       }
     ]
   },

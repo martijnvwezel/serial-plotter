@@ -25,6 +25,9 @@ export async function activate(context: vscode.ExtensionContext) {
 				retainContextWhenHidden: true
 			});
 
+			// Set panel icon
+			panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.svg');
+
 			panel.webview.html = getWebviewContent(panel.webview, context.extensionUri);
 
 			// Persist that the panel is open

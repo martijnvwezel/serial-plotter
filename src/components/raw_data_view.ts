@@ -1,6 +1,116 @@
 import { LitElement, html, css } from "lit";
 import { property, query } from "lit/decorators.js";
 import { customElement } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
+
+// ANSI color code to CSS color mapping
+const ANSI_COLORS: Record<number, string> = {
+  30: '#000000', // Black
+  31: '#cc0000', // Red
+  32: '#00cc00', // Green
+  33: '#cccc00', // Yellow
+  34: '#0000cc', // Blue
+  35: '#cc00cc', // Magenta
+  36: '#00cccc', // Cyan
+  37: '#cccccc', // White
+  90: '#666666', // Bright Black (Gray)
+  91: '#ff0000', // Bright Red
+  92: '#00ff00', // Bright Green
+  93: '#ffff00', // Bright Yellow
+  94: '#0000ff', // Bright Blue
+  95: '#ff00ff', // Bright Magenta
+  96: '#00ffff', // Bright Cyan
+  97: '#ffffff', // Bright White
+};
+
+const ANSI_BG_COLORS: Record<number, string> = {
+  40: '#000000', // Black
+  41: '#cc0000', // Red
+  42: '#00cc00', // Green
+  43: '#cccc00', // Yellow
+  44: '#0000cc', // Blue
+  45: '#cc00cc', // Magenta
+  46: '#00cccc', // Cyan
+  47: '#cccccc', // White
+  100: '#666666', // Bright Black
+  101: '#ff0000', // Bright Red
+  102: '#00ff00', // Bright Green
+  103: '#ffff00', // Bright Yellow
+  104: '#0000ff', // Bright Blue
+  105: '#ff00ff', // Bright Magenta
+  106: '#00ffff', // Bright Cyan
+  107: '#ffffff', // Bright White
+};
+
+function parseAnsiToHtml(text: string): string {
+  // Escape HTML entities first
+  let escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  // Match ANSI escape sequences: ESC[ followed by params and 'm'
+  // ESC can be \x1b, \033, or \e
+  const ansiRegex = /\x1b\[([0-9;]*)m/g;
+  
+  let result = '';
+  let lastIndex = 0;
+  let openSpans = 0;
+  let match;
+  
+  while ((match = ansiRegex.exec(escaped)) !== null) {
+    // Add text before this escape sequence
+    result += escaped.slice(lastIndex, match.index);
+    lastIndex = match.index + match[0].length;
+    
+    const codes = match[1].split(';').map(c => parseInt(c, 10) || 0);
+    
+    // Process codes
+    let styles: string[] = [];
+    let shouldReset = false;
+    
+    for (const code of codes) {
+      if (code === 0) {
+        shouldReset = true;
+      } else if (code === 1) {
+        styles.push('font-weight:bold');
+      } else if (code === 3) {
+        styles.push('font-style:italic');
+      } else if (code === 4) {
+        styles.push('text-decoration:underline');
+      } else if (ANSI_COLORS[code]) {
+        styles.push(`color:${ANSI_COLORS[code]}`);
+      } else if (ANSI_BG_COLORS[code]) {
+        styles.push(`background-color:${ANSI_BG_COLORS[code]}`);
+      }
+    }
+    
+    // Close previous spans if reset
+    if (shouldReset) {
+      while (openSpans > 0) {
+        result += '</span>';
+        openSpans--;
+      }
+    }
+    
+    // Open new span if we have styles
+    if (styles.length > 0) {
+      result += `<span style="${styles.join(';')}">`;
+      openSpans++;
+    }
+  }
+  
+  // Add remaining text
+  result += escaped.slice(lastIndex);
+  
+  // Close any remaining open spans
+  while (openSpans > 0) {
+    result += '</span>';
+    openSpans--;
+  }
+  
+  return result;
+}
 
 @customElement("raw-data-view")
 export class RawDataView extends LitElement {
@@ -173,7 +283,7 @@ export class RawDataView extends LitElement {
           <!-- Raw data view row -->
           <div class="raw-data-view-row" style="height: 60vh; min-height: 200px; max-height: 60vh;">
             <pre class="raw-data-pre" style="height: 100%; max-height: 100%; overflow: auto; background: transparent;">
-              <code id="raw">\n${displayText}</code>
+              <code id="raw">${unsafeHTML('\n' + parseAnsiToHtml(displayText))}</code>
             </pre>
           </div>
         </div>

@@ -11,7 +11,7 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 - **Interactive plot controls** - zoom, pan, auto-scroll
 - **Variable management** - customize colors, names, and visibility  
 - **Advanced statistics** - min, max, mean, median, slope, peak-to-peak analysis
-- **Raw data monitoring** - view unprocessed serial output
+- **Raw data monitoring** - view unprocessed serial output with full ANSI color support
 - **CSV export** - save your data for further analysis
 - **WebGL acceleration** - smooth plotting even with high data rates
 - **Fake data simulation** - test without hardware
@@ -148,7 +148,7 @@ All statistics update automatically as you zoom, pan, or receive new data. Value
 
 ### View Modes
 - **Plot View**: Interactive graphs with statistics table
-- **Raw View**: Monitor unprocessed serial data with filtering options
+- **Raw View**: Monitor unprocessed serial data with filtering options and full ANSI color rendering (16 foreground/background colors, bold, italic, underline)
 - **WebGL Mode**: High-performance rendering for demanding applications
 
 ### Data Export
