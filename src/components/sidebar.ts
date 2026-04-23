@@ -108,9 +108,10 @@ export class SidebarView extends LitElement {
             `;
           })}
         </ul>
-        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #333; text-align: center;">
+        </div>
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #333; text-align: center;">
           <div style="color: #666; font-size: 0.75rem; line-height: 1.4;">
-            <div style="margin-bottom: 0.3rem;">${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'DEVELOPMENT'}</div>
+            <div style="margin-bottom: 0.3rem;">v${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'DEVELOPMENT'}</div>
             <div style="color: #888;">Made by <a href="https://muino.nl" target="_blank" rel="noopener noreferrer" style="color: #4a7fc1; font-weight: 600; text-decoration: none; transition: color 0.2s;" @mouseenter="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.color = '#6a9fd1'}" @mouseleave="${(e: MouseEvent) => (e.currentTarget as HTMLElement).style.color = '#4a7fc1'}">Muino</a></div>
           </div>
         </div>
@@ -122,6 +123,13 @@ export class SidebarView extends LitElement {
     this.variableConfig = {};
     this.variableMap = new Map();
     this.requestUpdate();
+    
+    // Dispatch clear-buffer event to clear all buffers
+    this.dispatchEvent(new CustomEvent('clear-buffer', {
+      bubbles: true,
+      composed: true
+    }));
+    
     this.dispatchEvent(new CustomEvent('variable-config-changed', {
       detail: this.getVariableConfig(),
       bubbles: true,

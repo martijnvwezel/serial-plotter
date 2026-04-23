@@ -23,7 +23,7 @@ export class PlotScreenFast extends LitElement {
 
   @state()
   dataColors: Map<string, string> = new Map();
-  @state()
+  @property({ type: Object })
   selectedVariables: Set<string> = new Set();
   @state()
   autoScroll: boolean = true;
@@ -86,10 +86,31 @@ export class PlotScreenFast extends LitElement {
   @property()
   maxSamples = 1000000;
 
+  // Helper: compute max sample count across all data arrays without spread operator
+  private getMaxSampleCount(): number {
+    let max = 0;
+    for (const line of this.data.values()) {
+      if (line.length > max) max = line.length;
+    }
+    return max;
+  }
+
   app?: PIXI.Application;
   plotContainer?: PIXI.Container;
+  hoverContainer?: PIXI.Container;
   canvasDiv?: HTMLDivElement | null;
   private resizeObserver?: ResizeObserver;
+
+  // Hover/crosshair state
+  private hoverMouseX: number | null = null;
+  private hoverMouseY: number | null = null;
+
+  // Cached render params for hover calculations
+  private lastRenderParams: {
+    w: number; h: number; padding: number; labelPadding: number; yAxisOffset: number;
+    pixelsPerSample: number; effectiveScrollOffset: number; finalVisibleSamples: number;
+    yMin: number; yMax: number; scaleY: number; startSample: number; endSample: number;
+  } | null = null;
 
   // Bound event handlers for proper cleanup
   private boundHandleMouseDown = this.handleMouseDown.bind(this);
@@ -98,6 +119,7 @@ export class PlotScreenFast extends LitElement {
   private boundHandleCanvasWheel = this.handleCanvasWheel.bind(this);
   private boundHandleDragOver = this.handleDragOver.bind(this);
   private boundHandleDrop = this.handleDrop.bind(this);
+  private boundHandleMouseLeaveCanvas = this.handleMouseLeaveCanvas.bind(this);
 
   // Allow external updates to add a new line of data (like raw_data_view)
   public addLine(variable: string, value: number) {
@@ -110,7 +132,7 @@ export class PlotScreenFast extends LitElement {
     const now = Date.now();
     if (now - this.lastSampleTime > this.burstGapThreshold) {
       // New burst detected
-      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = this.getMaxSampleCount();
       this.burstStartIndex = maxSamples;
     }
     this.lastSampleTime = now;
@@ -136,7 +158,7 @@ export class PlotScreenFast extends LitElement {
     const now = Date.now();
     if (now - this.lastSampleTime > this.burstGapThreshold) {
       // New burst detected
-      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = this.getMaxSampleCount();
       this.burstStartIndex = maxSamples;
     }
     this.lastSampleTime = now;
@@ -158,6 +180,15 @@ export class PlotScreenFast extends LitElement {
     return this.dataColors.get(variable) || '#fff';
   }
 
+  // Notify parent component whenever selectedVariables changes so it can persist across view switches
+  private notifySelectedVariablesChanged() {
+    this.dispatchEvent(new CustomEvent('selected-variables-changed', {
+      detail: new Set(this.selectedVariables),
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   toggleVariableSelection(e: Event) {
     const input = e.target as HTMLInputElement;
     const variable = input.value;
@@ -168,6 +199,7 @@ export class PlotScreenFast extends LitElement {
       newSet.delete(variable);
     }
     this.selectedVariables = newSet;
+    this.notifySelectedVariablesChanged();
   }
 
   handleRemoveVariable(variable: string) {
@@ -175,6 +207,7 @@ export class PlotScreenFast extends LitElement {
     const newSet = new Set(this.selectedVariables);
     newSet.delete(variable);
     this.selectedVariables = newSet;
+    this.notifySelectedVariablesChanged();
     this.renderData();
   }
 
@@ -203,7 +236,7 @@ export class PlotScreenFast extends LitElement {
     // When enabling autoscroll, just update scroll position to show latest data
     // but preserve the zoom level (visibleSamples)
     if (this.autoScroll) {
-      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = this.getMaxSampleCount();
       this.scrollOffset = maxSamples - this.visibleSamples / 2;
     }
 
@@ -259,6 +292,20 @@ export class PlotScreenFast extends LitElement {
       this.yMax = newYMax;
       this.renderData();
     }
+
+    // Track hover position for crosshair/tooltip (using canvas-relative coords)
+    if (this.canvasDiv && !this.isDragging && !this.isYDragging) {
+      const rect = this.canvasDiv.getBoundingClientRect();
+      this.hoverMouseX = event.clientX - rect.left;
+      this.hoverMouseY = event.clientY - rect.top;
+      this.drawHoverOverlay();
+    }
+  }
+
+  handleMouseLeaveCanvas() {
+    this.hoverMouseX = null;
+    this.hoverMouseY = null;
+    this.drawHoverOverlay();
   }
 
   handleMouseUp() {
@@ -294,7 +341,7 @@ export class PlotScreenFast extends LitElement {
         if (this.yMin === null || this.yMax === null) {
           let min = Number.POSITIVE_INFINITY;
           let max = Number.NEGATIVE_INFINITY;
-          const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+          const maxSamples = this.getMaxSampleCount();
           const startSample = Math.max(0, Math.floor(this.scrollOffset - this.visibleSamples / 2));
           const endSample = Math.min(Math.ceil(this.scrollOffset + this.visibleSamples / 2), maxSamples - 1);
 
@@ -341,7 +388,7 @@ export class PlotScreenFast extends LitElement {
       const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
       let newVisible = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, oldVisible * zoomFactor);
 
-      const maxSamples = Math.max(...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = this.getMaxSampleCount();
       if (maxSamples > 0) {
         newVisible = Math.min(newVisible, maxSamples);
       }
@@ -410,7 +457,7 @@ export class PlotScreenFast extends LitElement {
     
     if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
       // Find the maximum data length across all variables
-      const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      const maxLength = this.getMaxSampleCount();
 
       // Get the current data for the variable
       let varData = this.data.get(variableKey) ?? [];
@@ -427,6 +474,7 @@ export class PlotScreenFast extends LitElement {
       if (!newSet.has(variableKey)) {
         newSet.add(variableKey);
         this.selectedVariables = newSet;
+        this.notifySelectedVariablesChanged();
       }
       // Always redraw on drop so the graph updates immediately
       this.renderData();
@@ -466,7 +514,7 @@ export class PlotScreenFast extends LitElement {
 
     if (variableKey && this.variableConfig.hasOwnProperty(variableKey)) {
       // Find the maximum data length across all variables
-      const maxLength = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      const maxLength = this.getMaxSampleCount();
 
       // Get the current data for the variable
       let varData = this.data.get(variableKey) ?? [];
@@ -484,6 +532,7 @@ export class PlotScreenFast extends LitElement {
       if (!newSet.has(variableKey)) {
         newSet.add(variableKey);
         this.selectedVariables = newSet;
+        this.notifySelectedVariablesChanged();
         this.renderData();
       }
       // Could also dispatch an event to notify that a variable was dropped
@@ -512,15 +561,22 @@ export class PlotScreenFast extends LitElement {
     const now = Date.now();
     if (now - this.lastSampleTime > this.burstGapThreshold) {
       // New burst detected
-      const oldMaxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      let oldMaxSamples = 0;
+      for (const line of this.data.values()) {
+        if (line.length > oldMaxSamples) oldMaxSamples = line.length;
+      }
       this.burstStartIndex = oldMaxSamples;
     }
     this.lastSampleTime = now;
 
-    this.data = new Map(data);
+    // Use the map reference directly instead of copying - the parent owns the data
+    this.data = data;
 
     // Sanity check: if burstStartIndex is beyond new data length (e.g. cleared), reset it
-    const newMaxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    let newMaxSamples = 0;
+    for (const line of this.data.values()) {
+      if (line.length > newMaxSamples) newMaxSamples = line.length;
+    }
     if (this.burstStartIndex >= newMaxSamples) {
       this.burstStartIndex = 0;
     }
@@ -547,6 +603,7 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.removeEventListener("mousemove", this.boundHandleMouseMove);
       this.canvasDiv.removeEventListener("mouseup", this.boundHandleMouseUp);
       this.canvasDiv.removeEventListener("mouseleave", this.boundHandleMouseUp);
+      this.canvasDiv.removeEventListener("mouseleave", this.boundHandleMouseLeaveCanvas);
       this.canvasDiv.removeEventListener("wheel", this.boundHandleCanvasWheel);
       this.canvasDiv.removeEventListener("dragover", this.boundHandleDragOver);
       this.canvasDiv.removeEventListener("dragleave", this.handleDragLeave);
@@ -595,10 +652,11 @@ export class PlotScreenFast extends LitElement {
       this.dataColors = newColors;
 
       // If no variables have been selected yet (graph is empty), auto-select all
-      // UNLESS startEmpty is true
+      // UNLESS startEmpty is true OR selectedVariables was provided externally
       if (this.selectedVariables.size === 0) {
         if (!this.startEmpty) {
           this.selectedVariables = new Set(Object.keys(config));
+          this.notifySelectedVariablesChanged();
         }
       } else {
         const currentSelected = new Set(this.selectedVariables);
@@ -613,15 +671,19 @@ export class PlotScreenFast extends LitElement {
         }
 
         // 2. Auto-select NEW variables (that weren't in oldConfig)
-        for (const key of Object.keys(config)) {
-          if (!oldConfig.hasOwnProperty(key)) {
-            currentSelected.add(key);
-            changed = true;
+        // Skip when oldConfig was empty (initial state) to preserve externally-provided selectedVariables
+        if (Object.keys(oldConfig).length > 0) {
+          for (const key of Object.keys(config)) {
+            if (!oldConfig.hasOwnProperty(key)) {
+              currentSelected.add(key);
+              changed = true;
+            }
           }
         }
 
         if (changed) {
             this.selectedVariables = currentSelected;
+            this.notifySelectedVariablesChanged();
         }
       }
     }
@@ -662,6 +724,7 @@ export class PlotScreenFast extends LitElement {
       this.canvasDiv.addEventListener("mousemove", this.boundHandleMouseMove);
       this.canvasDiv.addEventListener("mouseup", this.boundHandleMouseUp);
       this.canvasDiv.addEventListener("mouseleave", this.boundHandleMouseUp);
+      this.canvasDiv.addEventListener("mouseleave", this.boundHandleMouseLeaveCanvas);
       this.canvasDiv.addEventListener("wheel", this.boundHandleCanvasWheel, { passive: false });
 
       // Add drag and drop event listeners
@@ -688,7 +751,7 @@ export class PlotScreenFast extends LitElement {
       this.autoScroll = false;
       // When switching to burst mode, mark current data length as burst start
       // so next data will be within the burst window
-      const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+      const maxSamples = this.getMaxSampleCount();
       this.burstStartIndex = maxSamples;
       this.lastSampleTime = Date.now();
     } else if (mode === 'none') {
@@ -723,8 +786,10 @@ export class PlotScreenFast extends LitElement {
         this.canvasDiv.appendChild(pixiCanvas);
       }
       this.plotContainer = new PIXI.Container();
+      this.hoverContainer = new PIXI.Container();
       if (this.app && this.app.stage) {
         this.app.stage.addChild(this.plotContainer);
+        this.app.stage.addChild(this.hoverContainer);
       }
 
       // Set up ResizeObserver to handle container resizing
@@ -764,7 +829,11 @@ export class PlotScreenFast extends LitElement {
 
     const padding = this.padding;
     const labelPadding = 24;
-    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    // Efficient maxSamples calculation without spread operator (avoids stack overflow for large maps)
+    let maxSamples = 0;
+    for (const line of this.data.values()) {
+      if (line.length > maxSamples) maxSamples = line.length;
+    }
 
     // Auto-scroll logic: calculate scroll position and visible samples
     // Use local variables to avoid triggering reactive state updates during render
@@ -863,12 +932,8 @@ export class PlotScreenFast extends LitElement {
 
         return { key, min: minV, max: maxV, mean, median, slope, peakToPeak, peakToPeakWidth, current };
       });
-    // Only update stats if changed (stats is @state, so assignment will auto-trigger re-render)
-    const statsChanged = JSON.stringify(this.stats) !== JSON.stringify(newStats);
-    if (statsChanged) {
-      this.stats = newStats;
-      // No need to call requestUpdate() - @state() decorator handles it
-    }
+    // Update stats - use direct assignment; skip expensive JSON.stringify comparison
+    this.stats = newStats;
 
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
@@ -1074,11 +1139,164 @@ export class PlotScreenFast extends LitElement {
 
       dataLinesContainer.addChild(g);
     }
+
+    // Cache render params for hover overlay
+    this.lastRenderParams = {
+      w, h, padding, labelPadding, yAxisOffset,
+      pixelsPerSample, effectiveScrollOffset, finalVisibleSamples: finalVisibleSamples,
+      yMin, yMax, scaleY, startSample, endSample,
+    };
+
+    // Draw hover overlay if mouse is over the canvas
+    this.drawHoverOverlay();
+  }
+
+  private drawHoverOverlay() {
+    if (!this.hoverContainer || !this.lastRenderParams || !this.canvasDiv) return;
+    this.hoverContainer.removeChildren();
+
+    if (this.hoverMouseX === null || this.hoverMouseY === null) return;
+
+    const { w, h, padding, labelPadding, yAxisOffset, pixelsPerSample,
+      effectiveScrollOffset, finalVisibleSamples, yMin, scaleY, startSample, endSample } = this.lastRenderParams;
+
+    // Mouse coordinates are in CSS pixels. Convert plot boundaries to CSS pixels for boundary check,
+    // then use a normalized ratio to compute the sample index — this is unit-agnostic.
+    const dpr = window.devicePixelRatio || 1;
+
+    // Convert physical-pixel plot boundaries to CSS pixels for boundary checks
+    const leftX_css  = (padding + yAxisOffset) / dpr;
+    const rightX_css = (w - padding) / dpr;
+    const topY_css   = padding / dpr;
+    const bottomY_css = (h - labelPadding - padding) / dpr;
+
+    const mx_css = this.hoverMouseX;
+    const my_css = this.hoverMouseY;
+
+    // Only show crosshair if mouse is within the plot data area
+    if (mx_css < leftX_css || mx_css > rightX_css || my_css < topY_css || my_css > bottomY_css) return;
+
+    // Use a normalized ratio [0..1] across the data region → avoids any pixel-space unit confusion
+    const relativeX = (mx_css - leftX_css) / (rightX_css - leftX_css);
+    const sampleFloat = effectiveScrollOffset - finalVisibleSamples / 2 + relativeX * (finalVisibleSamples - 1);
+    const sampleIndex = Math.round(sampleFloat);
+
+    if (sampleIndex < startSample || sampleIndex > endSample) return;
+
+    // Snap x to the exact sample position — in physical pixels (matches the drawing coordinate space)
+    const snappedX = (padding + yAxisOffset) + (sampleIndex - effectiveScrollOffset + finalVisibleSamples / 2) * pixelsPerSample;
+
+    // Draw vertical crosshair line (physical pixel coords)
+    const crosshair = new PIXI.Graphics();
+    crosshair.moveTo(snappedX, padding);
+    crosshair.lineTo(snappedX, h - labelPadding - padding);
+    crosshair.stroke({ width: 1, color: 0xffffff, alpha: 0.4 });
+    this.hoverContainer.addChild(crosshair);
+
+    // Collect values for all selected variables at this sample index
+    const entries: Array<{ name: string; value: number; color: string; y: number }> = [];
+    for (const [name, line] of this.data.entries()) {
+      if (!this.selectedVariables.has(name) || line.length < 1) continue;
+      if (sampleIndex < line.length) {
+        const value = line[sampleIndex];
+        if (value != null && !isNaN(value) && isFinite(value)) {
+          const color = this.variableConfig[name]?.color || this.getDataColor(name) || "#ffffff";
+          const colorNum = typeof color === "string" && color.startsWith("#") ? parseInt(color.slice(1), 16) : (typeof color === "number" ? color : 0xffffff);
+          const y = h - labelPadding - padding - (value - yMin) * scaleY;
+
+          // Draw dot on the line at this sample
+          const dot = new PIXI.Graphics();
+          dot.circle(snappedX, y, 5);
+          dot.fill({ color: colorNum });
+          dot.circle(snappedX, y, 5);
+          dot.stroke({ width: 1.5, color: 0xffffff, alpha: 0.8 });
+          this.hoverContainer.addChild(dot);
+
+          const displayName = this.variableConfig[name]?.visablename || name;
+          entries.push({ name: displayName, value, color: typeof color === "string" ? color : "#ffffff", y });
+        }
+      }
+    }
+
+    if (entries.length === 0) return;
+
+    const hc = this.hoverContainer;
+
+    // Build tooltip text
+    const lineHeight = 18;
+    const tooltipPadding = 8;
+    const fontSize = 12;
+    const headerFontSize = 11;
+
+    // Format values
+    const formatVal = (v: number): string => {
+      const abs = Math.abs(v);
+      if (abs === 0) return '0';
+      if (abs >= 1e6 || abs < 0.0001) return v.toExponential(4);
+      const dp = Math.max(0, 5 - Math.floor(Math.log10(abs)) - 1);
+      return v.toFixed(Math.min(dp, 6));
+    };
+
+    // Measure tooltip dimensions
+    const headerText = `Sample: ${sampleIndex}`;
+    const lines = entries.map(e => `${e.name}: ${formatVal(e.value)}`);
+    const maxTextLen = Math.max(headerText.length, ...lines.map(l => l.length));
+    const tooltipW = Math.max(120, maxTextLen * fontSize * 0.6 + tooltipPadding * 2);
+    const tooltipH = (entries.length + 1) * lineHeight + tooltipPadding * 2;
+
+    // Plot boundary in physical pixels for tooltip clamping
+    const topY_phys   = padding;
+    const bottomY_phys = h - labelPadding - padding;
+
+    // Position tooltip in physical pixels (same coord space as the rest of the drawing)
+    let tx = snappedX + 12 * dpr;
+    let ty = my_css * dpr - tooltipH / 2;
+    if (tx + tooltipW > w - padding) {
+      tx = snappedX - tooltipW - 12 * dpr;
+    }
+    ty = Math.max(topY_phys, Math.min(ty, bottomY_phys - tooltipH));
+
+    // Draw tooltip background
+    const bg = new PIXI.Graphics();
+    bg.roundRect(tx, ty, tooltipW, tooltipH, 6);
+    bg.fill({ color: 0x1e1e1e, alpha: 0.92 });
+    bg.roundRect(tx, ty, tooltipW, tooltipH, 6);
+    bg.stroke({ width: 1, color: 0x555555, alpha: 0.8 });
+    this.hoverContainer.addChild(bg);
+
+    // Draw header (sample index)
+    const header = new PIXI.Text({
+      text: headerText,
+      style: { fontSize: headerFontSize, fill: 0x999999 }
+    });
+    header.x = tx + tooltipPadding;
+    header.y = ty + tooltipPadding;
+    hc.addChild(header);
+
+    // Draw each variable value
+    entries.forEach((entry, i) => {
+      // Color swatch
+      const swatchSize = 8;
+      const swatch = new PIXI.Graphics();
+      const sy = ty + tooltipPadding + (i + 1) * lineHeight + (lineHeight - swatchSize) / 2;
+      swatch.rect(tx + tooltipPadding, sy, swatchSize, swatchSize);
+      const swatchColor = entry.color.startsWith("#") ? parseInt(entry.color.slice(1), 16) : 0xffffff;
+      swatch.fill({ color: swatchColor });
+      hc.addChild(swatch);
+
+      const text = new PIXI.Text({
+        text: `${entry.name}: ${formatVal(entry.value)}`,
+        style: { fontSize, fill: 0xe0e0e0 }
+      });
+      text.x = tx + tooltipPadding + swatchSize + 6;
+      text.y = ty + tooltipPadding + (i + 1) * lineHeight;
+      hc.addChild(text);
+    });
   }
 
   render() {
     // Compute statistics for each variable for the visible window
-    const maxSamples = Math.max(0, ...Array.from(this.data.values()).map((line) => line.length));
+    const maxSamples = this.getMaxSampleCount();
     // Clamp visibleSamples to maxSamples if needed
     let visibleSamples = Math.max(PlotScreenFast.MIN_VISIBLE_SAMPLES, Math.min(this.visibleSamples, maxSamples > 0 ? maxSamples : this.visibleSamples));
     if (visibleSamples !== this.visibleSamples) {

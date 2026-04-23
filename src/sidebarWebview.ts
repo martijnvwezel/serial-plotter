@@ -1,6 +1,9 @@
 // Sidebar webview script for VS Code native sidebar
 // This renders the variable list in the VS Code sidebar panel
 
+// Define global variable injected by build process
+declare const __APP_VERSION__: string;
+
 interface VSCodeApi {
     postMessage(data: any): void;
 }
@@ -90,22 +93,23 @@ function render() {
     const entries = Object.entries(variableConfig);
     
     root.innerHTML = `
-        <div style="padding: 0.8rem; height: 100%;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="font-size: 1.1rem; font-weight: 600; color: var(--vscode-foreground);">Variables</span>
-                    <span style="background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 0.7rem; padding: 0.1em 0.4em; border-radius: 8px;">${entries.length}</span>
-                    <span style="background: #6b3a00; color: #ffa040; font-size: 0.65rem; font-weight: 600; padding: 0.1em 0.45em; border-radius: 8px; letter-spacing: 0.03em;">experimental</span>
+        <div style="display: flex; flex-direction: column; height: 100%;">
+            <div style="flex: 1; overflow-y: auto; padding: 0.8rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.1rem; font-weight: 600; color: var(--vscode-foreground);">Variables</span>
+                        <span style="background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 0.7rem; padding: 0.1em 0.4em; border-radius: 8px;">${entries.length}</span>
+                        <span style="background: #6b3a00; color: #ffa040; font-size: 0.65rem; font-weight: 600; padding: 0.1em 0.45em; border-radius: 8px; letter-spacing: 0.03em;">experimental</span>
+                    </div>
+                    <button id="reset-btn" title="Reset all variables" 
+                        style="background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 4px; padding: 0.3em 0.6em; font-size: 0.8em; cursor: pointer;">
+                        Reset
+                    </button>
                 </div>
-                <button id="reset-btn" title="Reset all variables" 
-                    style="background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 4px; padding: 0.3em 0.6em; font-size: 0.8em; cursor: pointer;">
-                    Reset
-                </button>
-            </div>
-            <div style="font-size: 0.72rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: var(--vscode-textBlockQuote-background); border-radius: 4px; border-left: 3px solid var(--vscode-textLink-foreground); line-height: 1.4;">
-                Drag variables to the plot. If graph doesn't update, click on it once.
-            </div>
-            <ul style="list-style: none; padding: 0; margin: 0; overflow-y: auto;">
+                <div style="font-size: 0.72rem; color: var(--vscode-descriptionForeground); margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: var(--vscode-textBlockQuote-background); border-radius: 4px; border-left: 3px solid var(--vscode-textLink-foreground); line-height: 1.4;">
+                    Drag variables to the plot. If graph doesn't update, click on it once.
+                </div>
+                <ul style="list-style: none; padding: 0; margin: 0;">
                 ${entries.map(([key, val]) => {
                     const values = variableMap.get(key);
                     const currentValue = values?.slice(-1)[0] ?? "N/A";
@@ -181,12 +185,14 @@ function render() {
                     </select>
                 </div>
             </div>
-            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.75rem 0;" />
-            <div style="text-align: center; padding: 0.5rem 0 0.25rem 0;">
-                <div style="color: var(--vscode-descriptionForeground); font-size: 0.72rem; line-height: 1.6; opacity: 0.7;">
-                    <div style="margin-bottom: 0.2rem;">${(window as any).__APP_VERSION__ || 'DEVELOPMENT'}</div>
-                    <div>Made by <a href="https://muino.nl" target="_blank" rel="noopener noreferrer"
-                        style="color: #4a7fc1; font-weight: 600; text-decoration: none;">Muino</a></div>
+            </div>
+            <div style="border-top: 1px solid var(--vscode-panel-border); padding: 0.6rem 0.8rem; background: var(--vscode-sideBar-background);">
+                <div style="text-align: center;">
+                    <div style="color: var(--vscode-descriptionForeground); font-size: 0.72rem; line-height: 1.6; opacity: 0.7;">
+                        <div style="margin-bottom: 0.2rem;">v${typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'DEVELOPMENT'}</div>
+                        <div>Made by <a href="https://muino.nl" target="_blank" rel="noopener noreferrer"
+                            style="color: #4a7fc1; font-weight: 600; text-decoration: none;">Muino</a></div>
+                    </div>
                 </div>
             </div>
         </div>

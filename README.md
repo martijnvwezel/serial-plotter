@@ -12,7 +12,8 @@ A powerful real-time data visualization extension for VS Code that plots numeric
 - **Variable management** - customize colors, names, and visibility  
 - **Advanced statistics** - min, max, mean, median, slope, peak-to-peak analysis
 - **Raw data monitoring** - view unprocessed serial output with full ANSI color support
-- **CSV export** - save your data for further analysis
+- **CSV export** - save your complete session data (no line limit) for further analysis
+- **CSV import** - load and replay previously saved CSV files
 - **WebGL acceleration** - smooth plotting even with high data rates
 - **Fake data simulation** - test without hardware
 - **VS Code native sidebar** *(experimental)* - manage variables, set defaults, and drag variables to plots directly from the VS Code activity bar
@@ -156,9 +157,17 @@ All statistics update automatically as you zoom, pan, or receive new data. Value
 - **WebGL Mode**: High-performance rendering for demanding applications
 
 ### Data Export
-- **CSV Download**: Export all collected data
-- **Automatic timestamps**: Data includes collection timestamps  
+- **CSV Download**: Export the complete session — every line received is saved with no line limit
+- **Display buffer**: The raw data view keeps the last 500,000 lines in memory for display performance; the export buffer is separate and unbounded
+- **ANSI stripped**: Color codes are removed from exported files
 - **Filtered export**: Hide data lines when exporting raw logs
+
+### CSV Import / Replay
+Load a previously saved CSV file back into the plotter:
+1. Click the port dropdown and select **"Load CSV File"**
+2. Click **Start** — a file picker will open
+3. The file is replayed line-by-line into the plotter exactly as if received live
+4. Click **Start** again while loading to cancel the replay
 
 ## ⚙️ Advanced Configuration
 
@@ -170,7 +179,8 @@ Compatible with all standard baud rates:
 
 ### Performance Options
 - **Fast Plot (WebGL)**: Enable for high data rates (>1000 samples/sec)
-- **Sample limits**: Automatic data truncation prevents memory issues
+- **Display buffer**: 500,000 lines kept in memory for the raw data view
+- **Export buffer**: Unbounded — every received line is captured for CSV export regardless of display buffer limits
 - **Render throttling**: 30ms intervals (~30 FPS) for smooth performance
 
 ### Troubleshooting

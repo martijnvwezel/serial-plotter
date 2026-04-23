@@ -33,6 +33,9 @@ class SerialPlotterApp extends LitElement {
 	running: boolean = false;
 
 	@state()
+	csv_running: boolean = false;
+
+	@state()
 	error?: string;
 
 	@state()
@@ -45,6 +48,9 @@ class SerialPlotterApp extends LitElement {
 
 	@state()
 	private plotInstances: number[] = [0]; // Track multiple plot instances
+
+	// Preserve selected variables per plot instance across view switches (monitor <-> graph)
+	private plotSelectedVariables: Map<number, Set<string>> = new Map();
 
 	@state()
 	private sidebarVisible: boolean = true;
@@ -71,6 +77,7 @@ class SerialPlotterApp extends LitElement {
 	private repeatInterval: number = 1000; // 1 second default
 
 	public lineBuffer: string[] = ["Connecting ..."];
+	public saveBuffer: string[] = []; // Unbounded buffer for file export
 	public variableMap: Map<string, number[]> = new Map<string, number[]>();
 	public autoScrollEnabled = true;
 	@state()
@@ -82,6 +89,14 @@ class SerialPlotterApp extends LitElement {
 	private static readonly MAX_BUFFER_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
 	private static readonly BYTES_PER_NUMBER = 8; // Each number (float64) is 8 bytes
 	private currentBufferBytes = 0;
+
+	// Line buffer limit to prevent unbounded memory growth
+	private static readonly MAX_LINE_BUFFER = 500000;
+
+	// Throttle timers for sidebar and postMessage updates
+	private sidebarUpdateTimer: number | null = null;
+	private static readonly SIDEBAR_UPDATE_INTERVAL = 100; // ms
+	private pendingSidebarUpdate = false;
 
 	// Fake data timer
 	private fakeDataTimer: number | null = null;
@@ -122,9 +137,22 @@ class SerialPlotterApp extends LitElement {
 			sidebar.addEventListener('variable-config-changed', (e: any) => {
 
 				this.variableConfig = e.detail;
-				// If config is cleared (empty), reset headerConfigured flag
+				// If config is cleared (empty), reset headerConfigured flag and clear buffers
 				if (Object.keys(this.variableConfig).length === 0) {
 					this.headerConfigured = false;
+					this.variableMap = new Map();
+					this.lineBuffer = [];
+					this.saveBuffer = [];
+					
+					// Clear raw-data-view
+					const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
+					if (rawDataView) {
+						rawDataView.lineBuffer = [];
+					}
+					
+					// Clear buffer size tracking
+					this.currentBufferBytes = 0;
+					this.samplesExceeded = false;
 				}
 				// // check why needed extra cons
 				// const sidebar_ = document.querySelector('sidebar-view') as any;
@@ -137,15 +165,14 @@ class SerialPlotterApp extends LitElement {
 				plotFastElements.forEach((plotFast: any) => {
 					if (plotFast && typeof plotFast.setVariableConfig === 'function') {
 						plotFast.setVariableConfig(this.variableConfig);
+						if (Object.keys(this.variableConfig).length === 0) {
+							plotFast.setData(new Map());
+						}
 					}
 				});
 				
-				// Send to VS Code sidebar
-				vscode.postMessage({
-					type: "update-sidebar-variables",
-					variableConfig: this.variableConfig,
-					variableMap: Array.from(this.variableMap.entries())
-				});
+				// Send to VS Code sidebar (only latest values, not entire history)
+				this.scheduleSidebarUpdate();
 			});
 		}
 
@@ -167,18 +194,14 @@ class SerialPlotterApp extends LitElement {
 	}
 
 	private handleRemovePlot(id: number) {
-		// Remove the plot instance with the given ID
-		// Always keep at least one plot if we are in plot mode? 
-		// The user might want to remove all and see nothing? 
-		// Let's allow removing all, or maybe keep one. 
-		// Usually apps keep one. But let's see.
-		// If I remove the last one, plotInstances becomes empty.
 		this.plotInstances = this.plotInstances.filter(instanceId => instanceId !== id);
+		this.plotSelectedVariables.delete(id);
 	}
 
 	private handleClearBuffer() {
 		console.log("Clearing main line buffer");
 		this.lineBuffer = [];
+		this.saveBuffer = [];
 
 		// Also clear the raw-data-view's internal buffer
 		const rawDataView = this.renderRoot.querySelector('raw-data-view') as any;
@@ -213,7 +236,8 @@ class SerialPlotterApp extends LitElement {
 
 				this.ports = [
 					...message.ports.filter(p => !p.path.startsWith('/dev/ttyS')),
-					{ path: '/dev/fake_serial', manufacturer: 'Simulated' }
+					{ path: '/dev/fake_serial', manufacturer: 'Simulated' },
+					{ path: '/dev/csv_file', manufacturer: 'Load CSV File' }
 				];
 
 				// Try to match device by USB identifiers first (handles ttyACM0 -> ttyACM1 changes)
@@ -349,6 +373,10 @@ class SerialPlotterApp extends LitElement {
 				};
 				window.addEventListener('mouseup', onWindowMouseUp);
 			}
+			// Handle CSV load complete (file fully replayed)
+			if (message.type == "csv-load-complete") {
+				this.csv_running = false;
+			}
 			// Handle default settings applied from extension
 			if (message.type == "apply-defaults") {
 				this.defaultBaudRate = (message as any).defaultBaudRate ?? 115200;
@@ -372,6 +400,7 @@ class SerialPlotterApp extends LitElement {
 		this.running = true;
 		this.stopped = false;
 		this.lineBuffer = ["Connecting ..."];
+		this.saveBuffer = [];
 		this.variableMap = new Map();
 		let t = 0;
 		const dt = 0.05;
@@ -455,6 +484,19 @@ class SerialPlotterApp extends LitElement {
 	handleStartStop() {
 		if (!this.selected) return;
 		this.error = "";
+
+		// CSV file mode — separate state, no baud rate needed
+		if (this.selected === '/dev/csv_file') {
+			if (this.csv_running) {
+				// Cancel in-progress CSV load
+				this.csv_running = false;
+			} else {
+				this.csv_running = true;
+				vscode.postMessage({ type: "open-csv" });
+			}
+			return;
+		}
+
 		this.running = !this.running;
 		this.stopped = !this.running;
 		if (this.running) {
@@ -549,12 +591,18 @@ class SerialPlotterApp extends LitElement {
 		const lines = Array.isArray(data) ? data : data.split(/\r?\n/).filter((line) => line.trim() !== "");
 		// Always show header in the raw text area
 
+		this.saveBuffer.push(...lines);
 		this.lineBuffer.push(...lines);
+
+		// Cap line buffer to prevent unbounded memory growth
+		if (this.lineBuffer.length > SerialPlotterApp.MAX_LINE_BUFFER) {
+			this.lineBuffer = this.lineBuffer.slice(-SerialPlotterApp.MAX_LINE_BUFFER);
+		}
 
 		const rawDataView = document.querySelector('raw-data-view') as any;
 		if (rawDataView) {
-			rawDataView.lineBuffer = this.lineBuffer;		
-			rawDataView.render();
+			rawDataView.lineBuffer = this.lineBuffer;
+			// Don't call rawDataView.render() directly - Lit handles updates via requestUpdate()
 		}
 
 		const sidebar = document.querySelector('sidebar-view') as any;
@@ -623,14 +671,10 @@ class SerialPlotterApp extends LitElement {
 		if (sidebar && variables_updated) {
 			sidebar.setVariableConfig(this.variableConfig);
 			sidebar.setVariableMap(this.variableMap);
-			sidebar.render();
+			// Don't call sidebar.render() directly - Lit handles updates via requestUpdate()
 			
-			// Send to VS Code sidebar
-			vscode.postMessage({
-				type: "update-sidebar-variables",
-				variableConfig: this.variableConfig,
-				variableMap: Array.from(this.variableMap.entries())
-			});
+			// Throttle VS Code sidebar updates - only send latest values, not entire history
+			this.scheduleSidebarUpdate();
 		}
 
 		// Update all plot screens with new data
@@ -639,9 +683,32 @@ class SerialPlotterApp extends LitElement {
 			if (sidebar) {
 				plotScreen.setVariableConfig(sidebar.getVariableConfig());
 				plotScreen.setData(this.variableMap);
-				plotScreen.renderData();
+				// Don't call renderData() - setData() already triggers it
 			}
 		});
+	}
+
+	// Throttled sidebar update to avoid serializing huge variableMap on every data point
+	private scheduleSidebarUpdate() {
+		this.pendingSidebarUpdate = true;
+		if (this.sidebarUpdateTimer !== null) return;
+		this.sidebarUpdateTimer = window.setTimeout(() => {
+			this.sidebarUpdateTimer = null;
+			if (!this.pendingSidebarUpdate) return;
+			this.pendingSidebarUpdate = false;
+
+			// Only send latest values per variable, not entire history
+			const latestValues: [string, number[]][] = [];
+			for (const [key, arr] of this.variableMap.entries()) {
+				// Send only the last value for sidebar display
+				latestValues.push([key, arr.length > 0 ? [arr[arr.length - 1]] : []]);
+			}
+			vscode.postMessage({
+				type: "update-sidebar-variables",
+				variableConfig: this.variableConfig,
+				variableMap: latestValues
+			});
+		}, SerialPlotterApp.SIDEBAR_UPDATE_INTERVAL);
 	}
 
 	private updateVariable(name: string, value: number) {
@@ -789,10 +856,11 @@ class SerialPlotterApp extends LitElement {
 		}
 	}
 	private downloadCSV() {
-		// Convert lineBuffer to CSV string
-		if (!this.lineBuffer || this.lineBuffer.length === 0) return;
+		// Convert saveBuffer to CSV string (unbounded, all received data)
+		const buffer = this.saveBuffer.length > 0 ? this.saveBuffer : this.lineBuffer;
+		if (!buffer || buffer.length === 0) return;
 		// Remove any ANSI color codes and join lines
-		const csv = this.lineBuffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
+		const csv = buffer.map(line => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n");
 		// Generate filename
 		const now = new Date();
 		const yyyy = now.getFullYear();
@@ -936,15 +1004,17 @@ class SerialPlotterApp extends LitElement {
 			   <div class="selector-group">
 				  <span class="selector-label">Port</span>
 				  <div style="display: flex; gap: 0.5rem; align-items: center;">
-					 <select id="port" @change="${this.handlePortChange}" ?disabled="${this.running}">
+					 <select id="port" @change="${this.handlePortChange}" ?disabled="${this.running || this.csv_running}">
 						${map(
 			this.ports,
 			(p) => {
 				const displayName = p.path === '/dev/fake_serial'
 					? `${p.path} - Simulated`
-					: p.manufacturer
-						? `${p.path} - ${p.manufacturer}${p.vendorId ? ` (${p.vendorId}:${p.productId})` : ''}`
-						: p.path;
+					: p.path === '/dev/csv_file'
+						? '📂 Load CSV File'
+						: p.manufacturer
+							? `${p.path} - ${p.manufacturer}${p.vendorId ? ` (${p.vendorId}:${p.productId})` : ''}`
+							: p.path;
 				return html`<option value="${p.path}" ?selected="${this.selected === p.path}">${displayName}</option>`;
 			}
 		)}
@@ -952,7 +1022,7 @@ class SerialPlotterApp extends LitElement {
 					 <button 
 						class="toggle-btn" 
 						@click="${this.handleRefresh}" 
-						?disabled="${this.running}"
+						?disabled="${this.running || this.csv_running}"
 						title="Refresh port list"
 						style="height: 2.4rem; padding: 0.5rem 0.75rem; min-width: auto;">
 						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -961,7 +1031,7 @@ class SerialPlotterApp extends LitElement {
 					 </button>
 				  </div>
 			   </div>
-			   <div class="selector-group">
+			   <div class="selector-group" style="${this.selected === '/dev/csv_file' ? 'display:none' : ''}">
 				  <span class="selector-label">Baud Rate</span>
 				  <select id="baud" ?disabled="${this.running}">
 					 <option value="110">110</option>
@@ -983,11 +1053,11 @@ class SerialPlotterApp extends LitElement {
 				  </select>
 			   </div>
 			   <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-left: 1.5rem;">
-				  <span class="connect-label">Connect</span>
+				  <span class="connect-label">${this.selected === '/dev/csv_file' ? 'Load' : 'Connect'}</span>
 				  <button id="start" @click="${this.handleStartStop}">
-					 ${this.running
+					 ${(this.running || this.csv_running)
 				? html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="#e74c3c"/></svg>Stop`
-				: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>Start`}
+				: html`<svg style="vertical-align: middle; margin-right: 0.5em;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3" fill="#2ecc71"/></svg>${this.selected === '/dev/csv_file' ? 'Open File' : 'Start'}`}
 				  </button>
 			   </div>
 			   ${this.connectionStatus ? html`
@@ -1042,7 +1112,7 @@ class SerialPlotterApp extends LitElement {
 		 ${this.error ? html`<div class="error-message">${this.error}</div>` : nothing}
 		 
 		 <!-- Serial Command Sender -->
-		 ${this.running ? html`
+		 ${this.running && this.selected !== '/dev/csv_file' ? html`
 		 <div style="background: #232323; padding: 0.75rem 2rem; border-bottom: 1px solid #444;">
 			<div style="display: flex; align-items: center; gap: 0.75rem;">
 			   <label style="color: #e0e0e0; font-size: 0.9rem; white-space: nowrap;">Command:</label>
@@ -1111,7 +1181,9 @@ class SerialPlotterApp extends LitElement {
 						.variableConfig=${this.variableConfig}
 						.startEmpty=${id !== 0}
 						.initialXMode=${this.defaultXMode}
+						.selectedVariables=${this.plotSelectedVariables.get(id) ?? new Set()}
 						@remove-plot=${() => this.handleRemovePlot(id)}
+						@selected-variables-changed=${(e: CustomEvent) => this.plotSelectedVariables.set(id, e.detail)}
 					></plot-screen-fast>
 				`) : html`
 					<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666; gap: 1rem; min-height: 300px;">

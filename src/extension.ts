@@ -257,6 +257,28 @@ async function processProtocolMessage(message: ProtocolRequests) {
 			}
 			break;
 		}
+	   case "open-csv": {
+		   try {
+			   const uri = await vscode.window.showOpenDialog({
+				   canSelectMany: false,
+				   filters: { 'CSV Files': ['csv', 'txt'], 'All Files': ['*'] },
+				   openLabel: 'Load CSV'
+			   });
+			   if (uri && uri[0]) {
+				   const bytes = await vscode.workspace.fs.readFile(uri[0]);
+				   const text = Buffer.from(bytes).toString('utf8');
+				   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+				   for (const line of lines) {
+					   panel?.webview.postMessage({ type: 'data', text: line });
+				   }
+			   }
+		   } catch (e: any) {
+			   panel?.webview.postMessage({ type: 'error', text: `Failed to load CSV: ${e.message}` });
+		   }
+		   // Signal loading is done regardless of success/cancel
+		   panel?.webview.postMessage({ type: 'csv-load-complete' });
+		   break;
+	   }
 	   case "save-csv": {
 			   const vscode = require('vscode');
 			   try {

@@ -21,6 +21,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private _extensionUri: vscode.Uri;
+
+    // Cached state to re-send when sidebar becomes visible again
+    private _lastVariableConfig: Record<string, { color: string; visablename: string }> = {};
+    private _lastVariableMap: Map<string, number[]> = new Map();
     
     // Callback to notify main panel of changes
     public onVariableConfigChanged?: (config: Record<string, { color: string; visablename: string }>) => void;
@@ -46,6 +50,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.html = this._getHtmlContent(webviewView.webview);
+
+        // Re-send cached state when the sidebar becomes visible again (e.g. switching tabs)
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                this._resendState();
+            }
+        });
+
+        // Send cached state after initial resolve (with a small delay so the script loads)
+        setTimeout(() => this._resendState(), 100);
 
         // Handle messages from the sidebar webview
         webviewView.webview.onDidReceiveMessage((message) => {
@@ -87,13 +101,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         variableConfig: Record<string, { color: string; visablename: string }>,
         variableMap: Map<string, number[]>
     ): void {
-        if (this._view) {
+        // Cache the latest state so we can restore it when the sidebar re-appears
+        this._lastVariableConfig = variableConfig;
+        this._lastVariableMap = variableMap;
+
+        if (this._view?.visible) {
             const message: VariableConfigUpdate = {
                 type: "variable-config-update",
                 variableConfig,
                 variableMap: Array.from(variableMap.entries())
             };
             this._view.webview.postMessage(message);
+        }
+    }
+
+    // Re-send cached state to the sidebar webview
+    private _resendState(): void {
+        if (!this._view?.visible) return;
+        if (Object.keys(this._lastVariableConfig).length > 0) {
+            const message: VariableConfigUpdate = {
+                type: "variable-config-update",
+                variableConfig: this._lastVariableConfig,
+                variableMap: Array.from(this._lastVariableMap.entries())
+            };
+            this._view.webview.postMessage(message);
+        }
+        // Also re-request settings so they display correctly
+        if (this.onRequestSettings) {
+            this.onRequestSettings();
         }
     }
 

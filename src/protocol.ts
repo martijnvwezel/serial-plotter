@@ -94,5 +94,13 @@ interface ApplyDefaultsResponse {
 	defaultSidebarVisible: boolean;
 }
 
-type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest | ReconnectRequest | SendCommandRequest | UpdateSidebarVariablesRequest | RequestDefaultsRequest;
-type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse | ConnectionStatusResponse | SidebarConfigChangedResponse | SidebarResetBufferResponse | SidebarDragStartResponse | ApplyDefaultsResponse;
+interface OpenCsvRequest {
+	type: "open-csv";
+}
+
+interface CsvLoadCompleteResponse {
+	type: "csv-load-complete";
+}
+
+type ProtocolRequests = PortsRequest | StartMonitorPortRequest | StopMonitorPortRequest | SaveCsvRequest | ReconnectRequest | SendCommandRequest | UpdateSidebarVariablesRequest | RequestDefaultsRequest | OpenCsvRequest;
+type ProtocolResponse = PortsResponse | DataResponse | ErrorResponse | ConnectionStatusResponse | SidebarConfigChangedResponse | SidebarResetBufferResponse | SidebarDragStartResponse | ApplyDefaultsResponse | CsvLoadCompleteResponse;
